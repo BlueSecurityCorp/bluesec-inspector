@@ -5,6 +5,8 @@ const protocolVersion = '1.3';
 
 export class DebuggerSessionManager {
   private sessions = new Map<number, SessionState>();
+  private reattachAfterNavigation = new Set<number>();
+  private manualDetachInFlight = new Set<number>();
 
   constructor() {
     chrome.debugger.onEvent.addListener((source, method, payload) => {
@@ -14,22 +16,42 @@ export class DebuggerSessionManager {
 
     chrome.debugger.onDetach.addListener((source, reason) => {
       if (source.tabId === undefined) return;
+      if (!this.manualDetachInFlight.has(source.tabId)) {
+        this.reattachAfterNavigation.add(source.tabId);
+      } else {
+        this.manualDetachInFlight.delete(source.tabId);
+      }
       this.sessions.set(source.tabId, { tabId: source.tabId, attached: false, error: reason });
       this.broadcast({ type: 'DETACHED', tabId: source.tabId, reason });
-    });
-
-    chrome.tabs.onRemoved.addListener((tabId) => {
-      this.sessions.delete(tabId);
     });
 
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       const session = this.sessions.get(tabId);
       if (!session) return;
-      this.sessions.set(tabId, { ...session, url: tab.url ?? session.url, title: tab.title ?? session.title });
-      if (changeInfo.status === 'loading' && session.attached) {
-        this.detach(tabId, 'Page navigation started.').catch(() => undefined);
+
+      this.sessions.set(tabId, {
+        ...session,
+        url: tab.url ?? session.url,
+        title: tab.title ?? session.title
+      });
+
+      if (changeInfo.status !== 'complete') return;
+      if (!this.reattachAfterNavigation.has(tabId)) return;
+      if (this.isAttached(tabId)) {
+        this.reattachAfterNavigation.delete(tabId);
+        return;
       }
+
+      this.reattachAfterNavigation.delete(tabId);
+      this.attach(tabId).catch(() => undefined);
     });
+
+    chrome.tabs.onRemoved.addListener((tabId) => {
+      this.sessions.delete(tabId);
+      this.reattachAfterNavigation.delete(tabId);
+      this.manualDetachInFlight.delete(tabId);
+    });
+
   }
 
   async attach(tabId: number): Promise<void> {
@@ -56,6 +78,7 @@ export class DebuggerSessionManager {
   }
 
   async detach(tabId: number, reason?: string): Promise<void> {
+    this.manualDetachInFlight.add(tabId);
     if (this.isAttached(tabId)) {
       await this.releaseConsoleObjects(tabId).catch(() => undefined);
       await chrome.debugger.detach({ tabId }).catch(() => undefined);

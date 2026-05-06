@@ -10,11 +10,32 @@ const manager = new DebuggerSessionManager();
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
+
+  // 컨텍스트 메뉴 생성
+  chrome.contextMenus.create({
+    id: 'bluesec-inspector',
+    title: '이 창에서 BlueSec Inspector 열기',
+    contexts: ['page', 'selection', 'link', 'image']
+  });
 });
 
 chrome.action.onClicked.addListener((tab) => {
   if (tab.windowId !== undefined) {
     chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined);
+  }
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === 'bluesec-inspector') {
+    if (tab?.id) {
+      await openDetachedWindow(tab.id);
+    } else {
+      // tab 정보가 없으면 현재 활성 탭 사용
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab?.id) {
+        await openDetachedWindow(activeTab.id);
+      }
+    }
   }
 });
 

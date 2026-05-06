@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "A BlueSecurity developer inspector that works without opening Chrome DevTools.",
   "minimum_chrome_version": "116",
-  "permissions": ["debugger", "sidePanel", "tabs", "storage", "activeTab"],
+  "permissions": ["debugger", "sidePanel", "tabs", "storage", "activeTab", "contextMenus"],
   "host_permissions": [
     "http://*/*",
     "https://*/*"
