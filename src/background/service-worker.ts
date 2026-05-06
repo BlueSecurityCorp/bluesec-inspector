@@ -3,8 +3,7 @@ import { isAllowedDebugUrl } from './url-policy';
 import type {
   ActiveTabInfo,
   ExtensionRequest,
-  ExtensionResponse,
-  Settings
+  ExtensionResponse
 } from '../shared/extension-messages';
 
 const manager = new DebuggerSessionManager();
@@ -31,10 +30,6 @@ async function handleRequest(request: ExtensionRequest): Promise<ExtensionRespon
         return ok(await getActiveTab());
       case 'GET_TAB':
         return ok(await getTab(request.tabId));
-      case 'GET_SETTINGS':
-        return ok(await getSettings());
-      case 'ADD_ALLOWED_ORIGIN':
-        return await addAllowedOrigin(request.url);
       case 'OPEN_DETACHED_WINDOW':
         return await openDetachedWindow(request.tabId);
       case 'ATTACH':
@@ -109,37 +104,10 @@ async function handleRequest(request: ExtensionRequest): Promise<ExtensionRespon
 
 async function attach(tabId: number): Promise<ExtensionResponse> {
   const tab = await chrome.tabs.get(tabId);
-  const settings = await getSettings();
-  const policy = isAllowedDebugUrl(tab.url, settings);
+  const policy = isAllowedDebugUrl(tab.url);
   if (!policy.allowed) return fail(policy.reason ?? 'This URL is blocked by policy.');
   await manager.attach(tabId);
   return ok(manager.getState(tabId));
-}
-
-async function getSettings(): Promise<Settings> {
-  const stored = await chrome.storage.local.get('settings');
-  return normalizeSettings(stored.settings);
-}
-
-async function setSettings(settings: Settings): Promise<void> {
-  await chrome.storage.local.set({ settings });
-}
-
-async function addAllowedOrigin(url: string): Promise<ExtensionResponse<Settings>> {
-  const pattern = originPatternFromUrl(url);
-  if (!pattern) return fail('This tab URL cannot be added to the allowlist.');
-
-  const policy = isAllowedDebugUrl(url, { allowedPatterns: [pattern] });
-  if (!policy.allowed) return fail(policy.reason ?? 'This URL is blocked by policy.');
-
-  const granted = await chrome.permissions.request({ origins: [pattern] }).catch(() => false);
-  if (!granted) return fail('Chrome permission was not granted for this origin.');
-
-  const settings = await getSettings();
-  const allowedPatterns = Array.from(new Set([...(settings.allowedPatterns ?? []), pattern])).sort();
-  const next = { ...settings, allowedPatterns };
-  await setSettings(next);
-  return ok(next);
 }
 
 async function getActiveTab(): Promise<ActiveTabInfo | null> {
@@ -188,20 +156,3 @@ function toFriendlyError(error: unknown): string {
   return message || 'CDP command failed.';
 }
 
-function normalizeSettings(value: unknown): Settings {
-  if (!value || typeof value !== 'object') return {};
-  const allowedPatterns = Array.isArray((value as Settings).allowedPatterns)
-    ? (value as Settings).allowedPatterns?.filter((item): item is string => typeof item === 'string')
-    : undefined;
-  return { allowedPatterns };
-}
-
-function originPatternFromUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-    return `${parsed.protocol}//${parsed.host}/*`;
-  } catch {
-    return null;
-  }
-}

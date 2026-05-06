@@ -6,10 +6,6 @@ export type ActiveTabInfo = {
   url?: string;
 };
 
-export type Settings = {
-  allowedPatterns?: string[];
-};
-
 export type UrlPolicyResult = {
   allowed: boolean;
   reason?: string;
@@ -18,8 +14,6 @@ export type UrlPolicyResult = {
 export type ExtensionRequest =
   | { type: 'GET_ACTIVE_TAB' }
   | { type: 'GET_TAB'; tabId: number }
-  | { type: 'GET_SETTINGS' }
-  | { type: 'ADD_ALLOWED_ORIGIN'; url: string }
   | { type: 'OPEN_DETACHED_WINDOW'; tabId: number }
   | { type: 'ATTACH'; tabId: number }
   | { type: 'DETACH'; tabId: number }

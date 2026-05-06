@@ -9,7 +9,6 @@ import type {
   GetPropertiesResult,
   MatchedStylesResult,
   SessionStateResult,
-  Settings
 } from '../shared/extension-messages';
 import type { DomNode, RemoteObjectLite } from '../shared/cdp-types';
 import { makeId } from '../shared/utils';
@@ -43,16 +42,10 @@ export default function App() {
   const [selectedNode, setSelectedNode] = useState<DomNode | null>(null);
   const [matchedStyles, setMatchedStyles] = useState<MatchedStylesResult | null>(null);
   const [computedStyle, setComputedStyle] = useState<ComputedStyleResult | null>(null);
-  const [settings, setSettings] = useState<Settings>({});
-
   const send = useCallback(<T,>(request: ExtensionRequest) => sendMessage<T>(request), []);
 
   const refreshActiveTab = useCallback(async () => {
-    const [response, settingsResponse] = await Promise.all([
-      fixedTabId ? send<ActiveTab | null>({ type: 'GET_TAB', tabId: fixedTabId }) : send<ActiveTab | null>({ type: 'GET_ACTIVE_TAB' }),
-      send<Settings>({ type: 'GET_SETTINGS' })
-    ]);
-    if (settingsResponse.ok) setSettings(settingsResponse.data);
+    const response = await (fixedTabId ? send<ActiveTab | null>({ type: 'GET_TAB', tabId: fixedTabId }) : send<ActiveTab | null>({ type: 'GET_ACTIVE_TAB' }));
     if (response.ok) {
       setActiveTab(response.data);
       if (response.data) {
@@ -120,7 +113,7 @@ export default function App() {
   }, [activeTab, panel, refreshDocument]);
 
   const attached = state?.attached === true;
-  const policy = useMemo(() => getPolicyStatus(activeTab?.url, settings), [activeTab?.url, settings]);
+  const policy = useMemo(() => getPolicyStatus(activeTab?.url), [activeTab?.url]);
 
   async function attach() {
     if (!activeTab) return;
@@ -129,17 +122,6 @@ export default function App() {
     if (response.ok) {
       setState(response.data);
       await refreshDocument();
-    } else {
-      setError(response.error);
-    }
-  }
-
-  async function allowCurrentOrigin() {
-    if (!activeTab?.url) return;
-    setError(null);
-    const response = await send<Settings>({ type: 'ADD_ALLOWED_ORIGIN', url: activeTab.url });
-    if (response.ok) {
-      setSettings(response.data);
     } else {
       setError(response.error);
     }
@@ -262,7 +244,6 @@ export default function App() {
       {!policy.allowed && policy.reason && (
         <div className="banner warning">
           <span>{policy.reason}</span>
-          {policy.canAllow && <button onClick={allowCurrentOrigin}>Allow current origin</button>}
         </div>
       )}
       {error && <div className="banner error"><span>{error}</span><button onClick={() => setError(null)}>Dismiss</button></div>}
@@ -711,23 +692,17 @@ function mergeChildren(node: DomNode, parentId: number, children: DomNode[]): Do
   return { ...node, children: node.children.map((child) => mergeChildren(child, parentId, children)) };
 }
 
-function getPolicyStatus(url: string | undefined, settings: Settings): { allowed: boolean; reason?: string; canAllow?: boolean } {
+function getPolicyStatus(url: string | undefined): { allowed: boolean; reason?: string } {
   if (!url) return { allowed: false, reason: 'No active tab URL is available.' };
-  const lower = url.toLowerCase();
-  const sensitive = ['bank', 'card', 'pay', 'payment', 'cert', 'certificate', 'auth', 'login.gov', 'checkout', 'account', 'securities', 'insurance'].find((keyword) => lower.includes(keyword));
-  if (sensitive) return { allowed: false, reason: `Attach is blocked because this URL contains "${sensitive}".` };
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return { allowed: false, reason: 'Only http and https pages can be inspected.' };
     }
-    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '[::1]' || parsed.hostname === '::1') return { allowed: true };
-    const pattern = `${parsed.protocol}//${parsed.host}/*`;
-    if (settings.allowedPatterns?.includes(pattern)) return { allowed: true };
+    return { allowed: true };
   } catch {
     return { allowed: false, reason: 'This tab URL cannot be inspected.' };
   }
-  return { allowed: false, reason: 'This origin is not allowed yet.', canAllow: true };
 }
 
 function stringifyUnknown(value: unknown): string {
