@@ -1,8 +1,31 @@
 {
   "name": "bluesec-inspector",
   "version": "0.1.0",
+  "description": "Chrome MV3 side-panel inspector for Console and Elements workflows using chrome.debugger and Chrome DevTools Protocol.",
   "private": true,
   "type": "module",
+  "keywords": [
+    "chrome-extension",
+    "manifest-v3",
+    "chrome-devtools-protocol",
+    "cdp",
+    "chrome-debugger",
+    "devtools",
+    "console",
+    "dom-inspector",
+    "elements-panel",
+    "security-research",
+    "browser-security",
+    "typescript",
+    "react",
+    "vite"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BlueSecurityCorp/bluesec-inspector.git"
+  },
+  "author": "blue / BlueSecurity",
+  "license": "MIT",
   "scripts": {
     "dev": "vite --mode development",
     "build": "tsc && vite build",

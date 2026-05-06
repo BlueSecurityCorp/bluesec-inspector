@@ -2,26 +2,32 @@
 
 [한국어 문서](README.md)
 
-BlueSec Inspector is a developer-only Chrome Manifest V3 extension by blue / BlueSecurity for basic Console and Elements workflows when the native Chrome DevTools window cannot be used.
+**BlueSec Inspector** is a Chrome MV3 extension for security researchers and web developers. It provides a lightweight Console and Elements inspector through the official Chrome `chrome.debugger` API and Chrome DevTools Protocol (CDP) when opening the native Chrome DevTools window is not practical in a restricted development environment.
 
-It is not a full DevTools replacement. It does not disable, bypass, detect, terminate, or interfere with ASTx or any other security software. It uses only official Chrome Extension APIs and Chrome DevTools Protocol commands through `chrome.debugger`.
+This project is intended for users looking for a **Chrome DevTools alternative**, **Chrome extension inspector**, **CDP console tool**, **DOM inspector**, or **security research browser tool**.
+
+BlueSec Inspector does not disable, bypass, detect, terminate, or interfere with ASTx or any other security software. It does not load remote code and only runs JavaScript expressions explicitly submitted by the user.
 
 ## Features
 
-- Chrome side panel UI
-- Attach and detach to the active tab through `chrome.debugger`
-- Default URL allowlist limited to:
+- Chrome Manifest V3 extension
+- Chrome side panel and detached popup window UI
+- Active tab attach / detach through `chrome.debugger`
+- Chrome DevTools Protocol (CDP) Runtime, Console, Log, DOM, CSS, and Overlay domains
+- Default URL allowlist:
   - `http://localhost/*`
   - `http://127.0.0.1/*`
   - `http://[::1]/*`
-- Additional development origins can be allowed from the side panel after an explicit Chrome permission prompt
-- Sensitive-looking URLs are blocked by keyword before attach
+- Explicit development/staging origin allowlisting through `Allow current origin`
+- Keyword-based blocking before attach on sensitive-looking URLs
 - Console tab:
   - `console.log`, `console.info`, `console.warn`, `console.error`, `console.debug`
   - uncaught exceptions
   - browser log entries
   - explicit JavaScript expression evaluation
   - object preview and property expansion
+  - command history navigation
+  - basic autocomplete
   - clear and JSON export
 - Elements tab:
   - DOM tree loading through `DOM.getDocument`
@@ -29,7 +35,7 @@ It is not a full DevTools replacement. It does not disable, bypass, detect, term
   - node hover highlight through `Overlay.highlightNode`
   - selected element attributes
   - attribute edit and remove
-  - matched and computed CSS read-only display
+  - read-only matched and computed CSS display
 
 ## Install
 
@@ -48,13 +54,16 @@ Then open `chrome://extensions`, enable Developer mode, choose "Load unpacked", 
 4. If the origin is not allowed yet, click `Allow current origin` and approve Chrome's permission prompt.
 5. Click `Attach`.
 6. Use the Console or Elements tab.
-7. Click `Detach` when finished.
+7. Click `Open Window` if you want a detached inspector window.
+8. Click `Detach` when finished.
 
 JavaScript only runs when you explicitly submit an expression in the Console input. The extension does not evaluate JavaScript automatically after attach.
 
 ## Security Notes
 
-The `debugger` permission is powerful because it can inspect and control the attached tab through the Chrome DevTools Protocol. BlueSec Inspector limits default host permissions to local development URLs. Other origins require an explicit `Allow current origin` action and Chrome permission approval. Attach is still blocked on URLs containing these keywords:
+The `debugger` permission is powerful because it can inspect and control the attached tab through the Chrome DevTools Protocol. BlueSec Inspector limits default host permissions to local development URLs. Other origins require an explicit `Allow current origin` action and Chrome permission approval.
+
+Attach is blocked on URLs containing these keywords:
 
 ```txt
 bank
@@ -75,7 +84,7 @@ This keyword block is a guardrail, not a security product.
 
 ## Limitations
 
-- Console rendering is intentionally simpler than Chrome DevTools.
+- It is not a full Chrome DevTools replacement.
 - Sources, breakpoints, Network, Performance, Application, and Lighthouse are out of scope.
 - iframe, worker, OOPIF, and shadow DOM handling is limited.
 - CSS cascade details may not match the native DevTools UI.
@@ -121,3 +130,7 @@ Verify that the DOM tree appears, hover highlights page elements, and editing `d
 - `Another debugger is already attached to this tab.`: close native DevTools or detach the other debugger.
 - `The target tab is no longer available.`: refresh the active tab in BlueSec Inspector.
 - DOM tree is empty: attach first, then click `Reload DOM`.
+
+## Keywords
+
+Chrome extension, Manifest V3, Chrome DevTools Protocol, CDP, chrome.debugger, DevTools alternative, Console inspector, DOM inspector, Elements panel, browser security, security research, BlueSecurity.
