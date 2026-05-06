@@ -1,5 +1,7 @@
 # BlueSec Inspector
 
+[한국어 문서](README.ko.md)
+
 BlueSec Inspector is a developer-only Chrome Manifest V3 extension by blue / BlueSecurity for basic Console and Elements workflows when the native Chrome DevTools window cannot be used.
 
 It is not a full DevTools replacement. It does not disable, bypass, detect, terminate, or interfere with ASTx or any other security software. It uses only official Chrome Extension APIs and Chrome DevTools Protocol commands through `chrome.debugger`.
