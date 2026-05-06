@@ -1,6 +1,6 @@
 # BlueSec Inspector
 
-[English README](README.md)
+[English README](README.en.md)
 
 BlueSec Inspector는 blue / BlueSecurity가 만든 개발자용 Chrome Manifest V3 확장 도구입니다. 기본 Chrome DevTools 창을 사용할 수 없는 환경에서 Console과 Elements 중심의 최소 워크플로를 제공합니다.
 
