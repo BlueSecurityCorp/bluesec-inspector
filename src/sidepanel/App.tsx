@@ -79,6 +79,16 @@ export default function App() {
       if (!activeTab || event.tabId !== activeTab.id) return;
       if (event.type === 'ATTACHED') {
         setState((previous) => ({ tabId: activeTab.id, attached: true, url: previous?.url ?? activeTab.url, title: previous?.title ?? activeTab.title }));
+        setRootNode(null);
+        setSelectedNode(null);
+        setMatchedStyles(null);
+        setComputedStyle(null);
+        if (!preserveLog) {
+          setEntries([]);
+        }
+        if (panel === 'elements') {
+          refreshDocument();
+        }
         return;
       }
       if (event.type === 'DETACHED') {
@@ -110,7 +120,7 @@ export default function App() {
     };
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
-  }, [activeTab, panel, refreshDocument]);
+  }, [activeTab, panel, preserveLog, refreshDocument]);
 
   const attached = state?.attached === true;
   const policy = useMemo(() => getPolicyStatus(activeTab?.url), [activeTab?.url]);
