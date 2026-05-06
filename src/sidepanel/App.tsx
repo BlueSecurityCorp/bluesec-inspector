@@ -498,7 +498,9 @@ function ObjectPreview({ value, tabId }: { value: RemoteObjectLite; tabId?: numb
             <div key={property.name} className="property-row">
               <span className="property-name">{property.name}</span>
               <span className="property-separator">:</span>
-              {property.value ? <ObjectPreview value={property.value} tabId={tabId} /> : <span>undefined</span>}
+              <span className="property-value">
+                {property.value ? <ObjectPreview value={property.value} tabId={tabId} /> : <span>undefined</span>}
+              </span>
             </div>
           ))}
         </div>

@@ -299,12 +299,29 @@ button:disabled {
 }
 
 .property-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(96px, 180px) 10px minmax(0, 1fr);
   gap: 6px;
+  align-items: start;
+  max-width: 100%;
 }
 
 .property-name {
   color: #9333ea;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-separator {
+  color: #64748b;
+}
+
+.property-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .elements-layout {
