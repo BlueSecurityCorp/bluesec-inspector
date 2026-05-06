@@ -315,6 +315,8 @@ function ConsolePanel(props: {
 }) {
   const [input, setInput] = useState('');
   const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  const [historyDraft, setHistoryDraft] = useState('');
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const logListRef = useRef<HTMLDivElement | null>(null);
@@ -330,6 +332,8 @@ function ConsolePanel(props: {
     const expression = value.trim();
     if (!expression) return;
     setHistory((items) => [expression, ...items.filter((item) => item !== expression)].slice(0, 50));
+    setHistoryIndex(null);
+    setHistoryDraft('');
     setSuggestionIndex(0);
     setSuggestionsOpen(false);
     props.evaluate(expression);
@@ -338,7 +342,34 @@ function ConsolePanel(props: {
 
   function applySuggestion(value: string) {
     setInput(value);
+    setHistoryIndex(null);
+    setHistoryDraft('');
     setSuggestionIndex(0);
+    setSuggestionsOpen(false);
+  }
+
+  function moveHistory(direction: 'previous' | 'next') {
+    if (history.length === 0) return;
+
+    if (direction === 'previous') {
+      const nextIndex = historyIndex === null ? 0 : Math.min(historyIndex + 1, history.length - 1);
+      if (historyIndex === null) setHistoryDraft(input);
+      setHistoryIndex(nextIndex);
+      setInput(history[nextIndex]);
+      setSuggestionsOpen(false);
+      return;
+    }
+
+    if (historyIndex === null) return;
+    const nextIndex = historyIndex - 1;
+    if (nextIndex < 0) {
+      setHistoryIndex(null);
+      setInput(historyDraft);
+      setHistoryDraft('');
+    } else {
+      setHistoryIndex(nextIndex);
+      setInput(history[nextIndex]);
+    }
     setSuggestionsOpen(false);
   }
 
@@ -365,15 +396,29 @@ function ConsolePanel(props: {
             value={input}
             onChange={(event) => {
               setInput(event.target.value);
+              setHistoryIndex(null);
+              setHistoryDraft('');
               setSuggestionIndex(0);
               setSuggestionsOpen(true);
             }}
-            onFocus={() => setSuggestionsOpen(true)}
+            onFocus={() => {
+              if (input.trim()) setSuggestionsOpen(true);
+            }}
             onBlur={() => window.setTimeout(() => setSuggestionsOpen(false), 120)}
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
                 event.preventDefault();
                 setSuggestionsOpen(false);
+                return;
+              }
+              if (event.key === 'ArrowUp' && suggestions.length === 0) {
+                event.preventDefault();
+                moveHistory('previous');
+                return;
+              }
+              if (event.key === 'ArrowDown' && suggestions.length === 0) {
+                event.preventDefault();
+                moveHistory('next');
                 return;
               }
               if (suggestions.length === 0) return;
