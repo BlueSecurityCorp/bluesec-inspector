@@ -44,6 +44,12 @@ export default function App() {
   const [computedStyle, setComputedStyle] = useState<ComputedStyleResult | null>(null);
   const send = useCallback(<T,>(request: ExtensionRequest) => sendMessage<T>(request), []);
 
+  useEffect(() => {
+    chrome.storage.local.get('preserveLog').then((result) => {
+      setPreserveLog(Boolean(result.preserveLog));
+    }).catch(() => undefined);
+  }, []);
+
   const refreshActiveTab = useCallback(async () => {
     const response = await (fixedTabId ? send<ActiveTab | null>({ type: 'GET_TAB', tabId: fixedTabId }) : send<ActiveTab | null>({ type: 'GET_ACTIVE_TAB' }));
     if (response.ok) {
@@ -157,6 +163,11 @@ export default function App() {
     }
   }
 
+  async function setPreserveLogPersisted(value: boolean) {
+    setPreserveLog(value);
+    await chrome.storage.local.set({ preserveLog: value }).catch(() => undefined);
+  }
+
   async function evaluate(expression: string) {
     if (!activeTab || !expression.trim()) return;
     setEntries((items) => [...items, { id: makeId('input'), ts: Date.now(), level: 'input', source: 'input', text: expression }]);
@@ -267,7 +278,7 @@ export default function App() {
             attached={attached}
             entries={entries}
             preserveLog={preserveLog}
-            setPreserveLog={setPreserveLog}
+            setPreserveLog={setPreserveLogPersisted}
             evaluate={evaluate}
             clear={clearConsole}
             exportLogs={exportLogs}
@@ -294,7 +305,7 @@ export default function App() {
   );
 }
 
-function ConsolePanel(props: {
+  function ConsolePanel(props: {
   attached: boolean;
   entries: ConsoleEntry[];
   preserveLog: boolean;
