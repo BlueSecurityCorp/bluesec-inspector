@@ -525,16 +525,134 @@ function ElementsPanel(props: {
   updateAttribute: (name: string, value: string) => void;
   removeAttribute: (name: string) => void;
 }) {
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const treeRef = useRef<HTMLDivElement | null>(null);
+  const visibleNodes = useMemo(
+    () => buildVisibleNodes(props.rootNode, expandedIds),
+    [expandedIds, props.rootNode]
+  );
+
+  useEffect(() => {
+    if (!props.rootNode) {
+      setExpandedIds(new Set());
+      return;
+    }
+    setExpandedIds(buildInitialExpandedIds(props.rootNode));
+  }, [props.rootNode]);
+
+  useEffect(() => {
+    const selectedId = props.selectedNode?.nodeId;
+    if (!selectedId) return;
+    const selectedElement = treeRef.current?.querySelector<HTMLElement>(`[data-node-id="${selectedId}"]`);
+    selectedElement?.scrollIntoView({ block: 'nearest' });
+  }, [props.selectedNode?.nodeId, visibleNodes]);
+
+  function focusTree() {
+    treeRef.current?.focus();
+  }
+
+  function isExpanded(nodeId: number) {
+    return expandedIds.has(nodeId);
+  }
+
+  function setExpanded(nodeId: number, next: boolean) {
+    setExpandedIds((current) => {
+      const nextSet = new Set(current);
+      if (next) nextSet.add(nodeId);
+      else nextSet.delete(nodeId);
+      return nextSet;
+    });
+  }
+
+  function toggleExpanded(nodeId: number) {
+    setExpanded(nodeId, !isExpanded(nodeId));
+  }
+
+  function selectByIndex(index: number) {
+    const item = visibleNodes[index];
+    if (!item) return;
+    props.selectNode(item.node);
+    focusTree();
+  }
+
+  function handleTreeKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (!visibleNodes.length) return;
+    const selectedId = props.selectedNode?.nodeId ?? visibleNodes[0].node.nodeId;
+    const currentIndex = Math.max(0, visibleNodes.findIndex((item) => item.node.nodeId === selectedId));
+    const current = visibleNodes[currentIndex];
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      selectByIndex(Math.min(currentIndex + 1, visibleNodes.length - 1));
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      selectByIndex(Math.max(currentIndex - 1, 0));
+      return;
+    }
+
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      if (!current) return;
+      if (current.hasChildren && !isExpanded(current.node.nodeId)) {
+        setExpanded(current.node.nodeId, true);
+        return;
+      }
+      if (current.node.children?.[0]) {
+        props.selectNode(current.node.children[0]);
+        focusTree();
+      }
+      return;
+    }
+
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      if (!current) return;
+      if (isExpanded(current.node.nodeId)) {
+        setExpanded(current.node.nodeId, false);
+        return;
+      }
+      const parentId = current.parentId;
+      if (parentId) {
+        const parentIndex = visibleNodes.findIndex((item) => item.node.nodeId === parentId);
+        if (parentIndex >= 0) selectByIndex(parentIndex);
+      }
+    }
+  }
+
   return (
     <section className="elements">
       <div className="toolbar">
         <button onClick={props.refreshDocument} disabled={!props.attached}>Reload DOM</button>
       </div>
       <div className="elements-layout">
-        <div className="dom-tree">
+        <div
+          className="dom-tree"
+          ref={treeRef}
+          tabIndex={0}
+          onKeyDown={handleTreeKeyDown}
+        >
           {!props.attached && <div className="empty">Attach to load the DOM tree.</div>}
           {props.attached && !props.rootNode && <div className="empty">Click Reload DOM.</div>}
-          {props.rootNode && <DomNodeRow node={props.rootNode} depth={0} selectedId={props.selectedNode?.nodeId} {...props} />}
+          {props.rootNode && (
+            <DomNodeRow
+              node={props.rootNode}
+              depth={0}
+              selectedId={props.selectedNode?.nodeId}
+              isExpanded={isExpanded}
+              toggleExpanded={toggleExpanded}
+              requestChildren={props.requestChildren}
+              highlightNode={props.highlightNode}
+              hideHighlight={props.hideHighlight}
+              focusTree={focusTree}
+              onRowClick={(node) => {
+                props.selectNode(node);
+                focusTree();
+              }}
+            />
+          )}
         </div>
         <aside className="details">
           <AttributesPane node={props.selectedNode} updateAttribute={props.updateAttribute} removeAttribute={props.removeAttribute} />
@@ -549,31 +667,50 @@ function DomNodeRow(props: {
   node: DomNode;
   depth: number;
   selectedId?: number;
+  isExpanded: (nodeId: number) => boolean;
+  toggleExpanded: (nodeId: number) => void;
   requestChildren: (node: DomNode) => void;
-  selectNode: (node: DomNode) => void;
   highlightNode: (node: DomNode) => void;
   hideHighlight: () => void;
+  focusTree: () => void;
+  onRowClick: (node: DomNode) => void;
 }) {
-  const [expanded, setExpanded] = useState(props.depth < 2);
   const hasChildren = Boolean(props.node.children?.length) || Boolean(props.node.childNodeCount);
+  const expanded = props.isExpanded(props.node.nodeId);
   async function toggle() {
     if (!expanded && !props.node.children?.length && props.node.childNodeCount) props.requestChildren(props.node);
-    setExpanded(!expanded);
+    props.toggleExpanded(props.node.nodeId);
   }
   return (
     <div>
       <div
+        data-node-id={props.node.nodeId}
         className={`dom-row ${props.selectedId === props.node.nodeId ? 'selected' : ''}`}
         style={{ paddingLeft: 8 + props.depth * 14 }}
-        onClick={() => props.selectNode(props.node)}
+        onClick={() => props.onRowClick(props.node)}
         onMouseEnter={() => props.highlightNode(props.node)}
         onMouseLeave={props.hideHighlight}
       >
-        <button className="twisty" onClick={(event) => { event.stopPropagation(); toggle(); }} disabled={!hasChildren}>{hasChildren ? (expanded ? 'v' : '>') : ''}</button>
+        <button
+          className="twisty"
+          onClick={(event) => {
+            event.stopPropagation();
+            toggle();
+            props.focusTree();
+          }}
+          disabled={!hasChildren}
+        >
+          {hasChildren ? (expanded ? 'v' : '>') : ''}
+        </button>
         <span>{nodeLabel(props.node)}</span>
       </div>
       {expanded && props.node.children?.map((child) => (
-        <DomNodeRow key={child.nodeId} {...props} node={child} depth={props.depth + 1} />
+        <DomNodeRow
+          key={child.nodeId}
+          {...props}
+          node={child}
+          depth={props.depth + 1}
+        />
       ))}
     </div>
   );
@@ -711,6 +848,42 @@ function mergeChildren(node: DomNode, parentId: number, children: DomNode[]): Do
   if (node.nodeId === parentId) return { ...node, children };
   if (!node.children) return node;
   return { ...node, children: node.children.map((child) => mergeChildren(child, parentId, children)) };
+}
+
+type VisibleNode = {
+  node: DomNode;
+  depth: number;
+  parentId?: number;
+  hasChildren: boolean;
+};
+
+function buildInitialExpandedIds(root: DomNode): Set<number> {
+  const expanded = new Set<number>();
+
+  function walk(node: DomNode, depth: number) {
+    const hasChildren = Boolean(node.children?.length) || Boolean(node.childNodeCount);
+    if (depth < 2 && hasChildren) {
+      expanded.add(node.nodeId);
+    }
+    node.children?.forEach((child) => walk(child, depth + 1));
+  }
+
+  walk(root, 0);
+  return expanded;
+}
+
+function buildVisibleNodes(root: DomNode | null, expandedIds: Set<number>): VisibleNode[] {
+  const result: VisibleNode[] = [];
+
+  function walk(node: DomNode, depth: number, parentId?: number) {
+    const hasChildren = Boolean(node.children?.length) || Boolean(node.childNodeCount);
+    result.push({ node, depth, parentId, hasChildren });
+    if (!hasChildren || !expandedIds.has(node.nodeId)) return;
+    node.children?.forEach((child) => walk(child, depth + 1, node.nodeId));
+  }
+
+  if (root) walk(root, 0);
+  return result;
 }
 
 function getPolicyStatus(url: string | undefined): { allowed: boolean; reason?: string } {
