@@ -859,16 +859,9 @@ type VisibleNode = {
 
 function buildInitialExpandedIds(root: DomNode): Set<number> {
   const expanded = new Set<number>();
-
-  function walk(node: DomNode, depth: number) {
-    const hasChildren = Boolean(node.children?.length) || Boolean(node.childNodeCount);
-    if (depth < 2 && hasChildren) {
-      expanded.add(node.nodeId);
-    }
-    node.children?.forEach((child) => walk(child, depth + 1));
+  if (Boolean(root.children?.length) || Boolean(root.childNodeCount)) {
+    expanded.add(root.nodeId);
   }
-
-  walk(root, 0);
   return expanded;
 }
 
