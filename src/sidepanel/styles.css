@@ -150,6 +150,12 @@ button:disabled {
   background: #fbfcfd;
 }
 
+.toolbar button.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+
 .toggle {
   display: inline-flex;
   align-items: center;

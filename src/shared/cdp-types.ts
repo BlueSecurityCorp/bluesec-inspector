@@ -34,6 +34,7 @@ export type DomNode = {
 export type SessionState = {
   tabId: number;
   attached: boolean;
+  inspecting?: boolean;
   url?: string;
   title?: string;
   error?: string;

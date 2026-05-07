@@ -39,7 +39,9 @@ export default function App() {
   const [entries, setEntries] = useState<ConsoleEntry[]>([]);
   const [preserveLog, setPreserveLog] = useState(false);
   const [rootNode, setRootNode] = useState<DomNode | null>(null);
+  const rootNodeRef = useRef<DomNode | null>(null);
   const [selectedNode, setSelectedNode] = useState<DomNode | null>(null);
+  const [pendingPickedNodeId, setPendingPickedNodeId] = useState<number | null>(null);
   const [matchedStyles, setMatchedStyles] = useState<MatchedStylesResult | null>(null);
   const [computedStyle, setComputedStyle] = useState<ComputedStyleResult | null>(null);
   const send = useCallback(<T,>(request: ExtensionRequest) => sendMessage<T>(request), []);
@@ -49,6 +51,10 @@ export default function App() {
       setPreserveLog(Boolean(result.preserveLog));
     }).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    rootNodeRef.current = rootNode;
+  }, [rootNode]);
 
   const refreshActiveTab = useCallback(async () => {
     const response = await (fixedTabId ? send<ActiveTab | null>({ type: 'GET_TAB', tabId: fixedTabId }) : send<ActiveTab | null>({ type: 'GET_ACTIVE_TAB' }));
@@ -84,9 +90,10 @@ export default function App() {
     const listener = (event: ExtensionEvent) => {
       if (!activeTab || event.tabId !== activeTab.id) return;
       if (event.type === 'ATTACHED') {
-        setState((previous) => ({ tabId: activeTab.id, attached: true, url: previous?.url ?? activeTab.url, title: previous?.title ?? activeTab.title }));
+        setState((previous) => ({ tabId: activeTab.id, attached: true, inspecting: false, url: previous?.url ?? activeTab.url, title: previous?.title ?? activeTab.title }));
         setRootNode(null);
         setSelectedNode(null);
+        setPendingPickedNodeId(null);
         setMatchedStyles(null);
         setComputedStyle(null);
         if (!preserveLog) {
@@ -98,7 +105,20 @@ export default function App() {
         return;
       }
       if (event.type === 'DETACHED') {
-        setState((previous) => ({ tabId: activeTab.id, attached: false, url: previous?.url ?? activeTab.url, title: previous?.title ?? activeTab.title, error: event.reason }));
+        setState((previous) => ({ tabId: activeTab.id, attached: false, inspecting: false, url: previous?.url ?? activeTab.url, title: previous?.title ?? activeTab.title, error: event.reason }));
+        return;
+      }
+      if (event.type === 'INSPECT_MODE_CHANGED') {
+        setState((previous) => ({ tabId: activeTab.id, attached: true, inspecting: event.inspecting, url: previous?.url ?? activeTab.url, title: previous?.title ?? activeTab.title }));
+        return;
+      }
+      if (event.type === 'ELEMENT_PICKED') {
+        setPanel('elements');
+        setState((previous) => ({ tabId: activeTab.id, attached: true, inspecting: false, url: previous?.url ?? activeTab.url, title: previous?.title ?? activeTab.title }));
+        setPendingPickedNodeId(event.nodeId);
+        if (!rootNodeRef.current) {
+          refreshDocument();
+        }
         return;
       }
       if (event.type === 'CONSOLE_EVENT') {
@@ -157,7 +177,20 @@ export default function App() {
     if (!activeTab) return;
     const response = await send<null>({ type: 'DETACH', tabId: activeTab.id });
     if (response.ok) {
-      setState({ tabId: activeTab.id, attached: false, url: activeTab.url, title: activeTab.title });
+      setState({ tabId: activeTab.id, attached: false, inspecting: false, url: activeTab.url, title: activeTab.title });
+    } else {
+      setError(response.error);
+    }
+  }
+
+  async function toggleInspectMode() {
+    if (!activeTab || !attached) return;
+    setError(null);
+    const response = state?.inspecting
+      ? await send<SessionStateResult>({ type: 'STOP_INSPECT_MODE', tabId: activeTab.id })
+      : await send<SessionStateResult>({ type: 'START_INSPECT_MODE', tabId: activeTab.id });
+    if (response.ok) {
+      setState(response.data);
     } else {
       setError(response.error);
     }
@@ -215,6 +248,15 @@ export default function App() {
     if (matched.ok) setMatchedStyles(matched.data);
     if (computed.ok) setComputedStyle(computed.data);
   }
+
+  useEffect(() => {
+    if (!pendingPickedNodeId || !rootNode) return;
+    const picked = findNodeById(rootNode, pendingPickedNodeId);
+    if (!picked) return;
+    setPendingPickedNodeId(null);
+    setPanel('elements');
+    selectNode(picked);
+  }, [pendingPickedNodeId, rootNode]);
 
   async function requestChildren(node: DomNode) {
     if (!activeTab) return;
@@ -298,6 +340,8 @@ export default function App() {
             hideHighlight={hideHighlight}
             updateAttribute={updateAttribute}
             removeAttribute={removeAttribute}
+            inspecting={state?.inspecting === true}
+            onToggleInspectMode={toggleInspectMode}
           />
         )}
       </main>
@@ -524,6 +568,8 @@ function ElementsPanel(props: {
   hideHighlight: () => void;
   updateAttribute: (name: string, value: string) => void;
   removeAttribute: (name: string) => void;
+  inspecting: boolean;
+  onToggleInspectMode: () => void;
 }) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const treeRef = useRef<HTMLDivElement | null>(null);
@@ -626,6 +672,9 @@ function ElementsPanel(props: {
     <section className="elements">
       <div className="toolbar">
         <button onClick={props.refreshDocument} disabled={!props.attached}>Reload DOM</button>
+        <button className={props.inspecting ? 'active' : ''} onClick={props.onToggleInspectMode} disabled={!props.attached}>
+          {props.inspecting ? 'Cancel pick' : 'Pick element'}
+        </button>
       </div>
       <div className="elements-layout">
         <div
@@ -877,6 +926,16 @@ function buildVisibleNodes(root: DomNode | null, expandedIds: Set<number>): Visi
 
   if (root) walk(root, 0);
   return result;
+}
+
+function findNodeById(node: DomNode | null, nodeId: number): DomNode | null {
+  if (!node) return null;
+  if (node.nodeId === nodeId) return node;
+  for (const child of node.children ?? []) {
+    const found = findNodeById(child, nodeId);
+    if (found) return found;
+  }
+  return null;
 }
 
 function getPolicyStatus(url: string | undefined): { allowed: boolean; reason?: string } {

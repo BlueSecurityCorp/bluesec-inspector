@@ -22,6 +22,8 @@ export type ExtensionRequest =
   | { type: 'GET_PROPERTIES'; tabId: number; objectId: string }
   | { type: 'RELEASE_CONSOLE_OBJECTS'; tabId: number }
   | { type: 'GET_DOCUMENT'; tabId: number }
+  | { type: 'START_INSPECT_MODE'; tabId: number }
+  | { type: 'STOP_INSPECT_MODE'; tabId: number }
   | { type: 'REQUEST_CHILD_NODES'; tabId: number; nodeId: number }
   | { type: 'HIGHLIGHT_NODE'; tabId: number; nodeId: number }
   | { type: 'HIDE_HIGHLIGHT'; tabId: number }
@@ -42,6 +44,8 @@ export type ExtensionEvent =
   | { type: 'EXCEPTION_EVENT'; tabId: number; payload: unknown }
   | { type: 'LOG_EVENT'; tabId: number; payload: unknown }
   | { type: 'DOM_EVENT'; tabId: number; method: string; payload: unknown }
+  | { type: 'ELEMENT_PICKED'; tabId: number; nodeId: number; backendNodeId?: number }
+  | { type: 'INSPECT_MODE_CHANGED'; tabId: number; inspecting: boolean }
   | { type: 'CDP_ERROR'; tabId?: number; message: string; detail?: unknown };
 
 export type EvaluateResult = {

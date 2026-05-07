@@ -80,6 +80,12 @@ async function handleRequest(request: ExtensionRequest): Promise<ExtensionRespon
       case 'RELEASE_CONSOLE_OBJECTS':
         await manager.releaseConsoleObjects(request.tabId);
         return ok(null);
+      case 'START_INSPECT_MODE':
+        await manager.startInspectMode(request.tabId);
+        return ok(manager.getState(request.tabId));
+      case 'STOP_INSPECT_MODE':
+        await manager.stopInspectMode(request.tabId);
+        return ok(manager.getState(request.tabId));
       case 'GET_DOCUMENT':
         return ok(await manager.sendCommand(request.tabId, 'DOM.getDocument', { depth: 1, pierce: true }));
       case 'REQUEST_CHILD_NODES':
