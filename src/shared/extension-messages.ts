@@ -1,4 +1,16 @@
-import type { ComputedStyle, Cookie, CookieDeleteInput, CookieInput, DomNode, MatchedStyles, RemoteObjectLite, SessionState } from './cdp-types';
+import type {
+  ComputedStyle,
+  Cookie,
+  CookieDeleteInput,
+  CookieInput,
+  DomNode,
+  IndexedDbDatabase,
+  IndexedDbEntry,
+  MatchedStyles,
+  RemoteObjectLite,
+  SessionState,
+  WebStorageSnapshot,
+} from './cdp-types';
 
 export type ActiveTabInfo = {
   id: number;
@@ -25,6 +37,14 @@ export type ExtensionRequest =
   | { type: 'GET_COOKIES'; tabId: number }
   | { type: 'SET_COOKIE'; tabId: number; cookie: CookieInput }
   | { type: 'DELETE_COOKIE'; tabId: number; cookie: CookieDeleteInput }
+  | { type: 'GET_WEB_STORAGE'; tabId: number }
+  | { type: 'SET_WEB_STORAGE_ITEM'; tabId: number; area: 'localStorage' | 'sessionStorage'; key: string; value: string; previousKey?: string }
+  | { type: 'DELETE_WEB_STORAGE_ITEM'; tabId: number; area: 'localStorage' | 'sessionStorage'; key: string }
+  | { type: 'GET_INDEXED_DB_DATABASES'; tabId: number }
+  | { type: 'GET_INDEXED_DB_ENTRIES'; tabId: number; databaseName: string; objectStoreName: string; skipCount?: number; pageSize?: number }
+  | { type: 'DELETE_INDEXED_DB_ENTRY'; tabId: number; databaseName: string; objectStoreName: string; key: unknown }
+  | { type: 'CLEAR_INDEXED_DB_STORE'; tabId: number; databaseName: string; objectStoreName: string }
+  | { type: 'DELETE_INDEXED_DB_DATABASE'; tabId: number; databaseName: string }
   | { type: 'START_INSPECT_MODE'; tabId: number }
   | { type: 'STOP_INSPECT_MODE'; tabId: number }
   | { type: 'REQUEST_CHILD_NODES'; tabId: number; nodeId: number }
@@ -62,6 +82,9 @@ export type GetPropertiesResult = {
 
 export type DocumentResult = { root: DomNode };
 export type CookiesResult = { cookies: Cookie[] };
+export type WebStorageResult = WebStorageSnapshot;
+export type IndexedDbDatabasesResult = { origin: string; databases: IndexedDbDatabase[] };
+export type IndexedDbEntriesResult = { databaseName: string; objectStoreName: string; entries: IndexedDbEntry[]; hasMore: boolean };
 export type MatchedStylesResult = MatchedStyles;
 export type ComputedStyleResult = { computedStyle: ComputedStyle };
 export type SessionStateResult = SessionState;

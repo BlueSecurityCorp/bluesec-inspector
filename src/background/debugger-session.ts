@@ -74,6 +74,7 @@ export class DebuggerSessionManager {
       await this.sendCommand(tabId, 'Network.enable');
       await this.sendCommand(tabId, 'DOM.enable');
       await this.sendCommand(tabId, 'CSS.enable');
+      await this.sendCommand(tabId, 'IndexedDB.enable');
       await this.sendCommand(tabId, 'Overlay.enable');
       const tab = await chrome.tabs.get(tabId);
       this.sessions.set(tabId, { tabId, attached: true, inspecting: false, url: tab.url, title: tab.title });

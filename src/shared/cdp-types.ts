@@ -107,3 +107,49 @@ export type CookieDeleteInput = {
   url?: string;
   partitionKey?: CookiePartitionKey;
 };
+
+export type StorageEntry = {
+  key: string;
+  value: string;
+};
+
+export type WebStorageSnapshot = {
+  origin: string;
+  localStorage: StorageEntry[];
+  sessionStorage: StorageEntry[];
+};
+
+export type IndexedDbIndex = {
+  name: string;
+  keyPath?: string | string[] | null;
+  unique?: boolean;
+  multiEntry?: boolean;
+};
+
+export type IndexedDbObjectStore = {
+  name: string;
+  keyPath?: string | string[] | null;
+  autoIncrement?: boolean;
+  indexes: IndexedDbIndex[];
+};
+
+export type IndexedDbDatabase = {
+  name: string;
+  version: number;
+  objectStores: IndexedDbObjectStore[];
+};
+
+export type IndexedDbKeySpec =
+  | { type: 'number'; value: number }
+  | { type: 'string'; value: string }
+  | { type: 'date'; value: string }
+  | { type: 'array'; value: IndexedDbKeySpec[] };
+
+export type IndexedDbEntry = {
+  keySpec: IndexedDbKeySpec;
+  keyText: string;
+  valueText: string;
+  valueSerializable: boolean;
+  primaryKeySpec?: IndexedDbKeySpec;
+  primaryKeyText?: string;
+};

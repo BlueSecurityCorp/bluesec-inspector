@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ComputedStyleResult,
   CookiesResult,
+  IndexedDbDatabasesResult,
+  IndexedDbEntriesResult,
   DocumentResult,
   EvaluateResult,
   ExtensionEvent,
@@ -10,11 +12,25 @@ import type {
   GetPropertiesResult,
   MatchedStylesResult,
   SessionStateResult,
+  WebStorageResult,
 } from '../shared/extension-messages';
-import type { Cookie, CookieDeleteInput, CookieInput, CookiePriority, CookieSameSite, DomNode, RemoteObjectLite } from '../shared/cdp-types';
+import type {
+  Cookie,
+  CookieDeleteInput,
+  CookieInput,
+  CookiePriority,
+  CookieSameSite,
+  DomNode,
+  IndexedDbDatabase,
+  IndexedDbEntry,
+  IndexedDbKeySpec,
+  RemoteObjectLite,
+  StorageEntry,
+  WebStorageSnapshot,
+} from '../shared/cdp-types';
 import { makeId } from '../shared/utils';
 
-type Panel = 'console' | 'elements' | 'cookies';
+type Panel = 'console' | 'elements' | 'cookies' | 'storage';
 type ConsoleEntry = {
   id: string;
   ts: number;
@@ -37,6 +53,19 @@ type CookieDraft = {
   sameSite: CookieSameSite | '';
   priority: CookiePriority | '';
   expiresText: string;
+};
+type WebStorageArea = 'localStorage' | 'sessionStorage';
+type StorageMode = 'web' | 'indexeddb';
+type StorageDraft = {
+  area: WebStorageArea;
+  key: string;
+  value: string;
+  previousKey: string;
+};
+type IndexedDbSelection = {
+  databaseName: string;
+  objectStoreName: string;
+  selectedEntryIndex: number;
 };
 
 export default function App() {
@@ -64,6 +93,17 @@ export default function App() {
   const [selectedCookieKey, setSelectedCookieKey] = useState<string | null>(null);
   const selectedCookieKeyRef = useRef<string | null>(null);
   const [cookieDraft, setCookieDraft] = useState<CookieDraft | null>(null);
+  const [storageMode, setStorageMode] = useState<StorageMode>('web');
+  const [webStorage, setWebStorage] = useState<WebStorageSnapshot | null>(null);
+  const [webStorageLoading, setWebStorageLoading] = useState(false);
+  const [webStorageArea, setWebStorageArea] = useState<WebStorageArea>('localStorage');
+  const [webStorageSearch, setWebStorageSearch] = useState('');
+  const [webStorageDraft, setWebStorageDraft] = useState<StorageDraft | null>(null);
+  const [indexedDbOverview, setIndexedDbOverview] = useState<IndexedDbDatabasesResult | null>(null);
+  const [indexedDbLoading, setIndexedDbLoading] = useState(false);
+  const [indexedDbSelection, setIndexedDbSelection] = useState<IndexedDbSelection | null>(null);
+  const [indexedDbEntries, setIndexedDbEntries] = useState<IndexedDbEntriesResult | null>(null);
+  const [indexedDbSearch, setIndexedDbSearch] = useState('');
   const send = useCallback(<T,>(request: ExtensionRequest) => sendMessage<T>(request), []);
 
   useEffect(() => {
@@ -84,6 +124,11 @@ export default function App() {
     setCookies([]);
     setSelectedCookieKey(null);
     setCookieDraft(null);
+    setWebStorage(null);
+    setWebStorageDraft(null);
+    setIndexedDbOverview(null);
+    setIndexedDbSelection(null);
+    setIndexedDbEntries(null);
   }, [activeTab?.id]);
 
   useEffect(() => {
@@ -136,6 +181,74 @@ export default function App() {
     }
   }, [activeTab, send]);
 
+  const refreshWebStorage = useCallback(async (areaOverride?: WebStorageArea) => {
+    if (!activeTab) return;
+    const area = areaOverride ?? webStorageArea;
+    setWebStorageLoading(true);
+    const response = await send<WebStorageResult>({ type: 'GET_WEB_STORAGE', tabId: activeTab.id });
+    setWebStorageLoading(false);
+    if (!response.ok) {
+      setError(response.error);
+      return;
+    }
+    setWebStorage(response.data);
+    const items = response.data[area];
+    const selected = items.find((item) => item.key === webStorageDraft?.key && item.value === webStorageDraft?.value) ?? items[0] ?? null;
+    if (selected) {
+      setWebStorageDraft({ area, key: selected.key, value: selected.value, previousKey: selected.key });
+    } else {
+      setWebStorageDraft({ area, key: '', value: '', previousKey: '' });
+    }
+  }, [activeTab, send, webStorageArea, webStorageDraft?.key, webStorageDraft?.value]);
+
+  const refreshIndexedDbOverview = useCallback(async () => {
+    if (!activeTab) return;
+    setIndexedDbLoading(true);
+    const response = await send<IndexedDbDatabasesResult>({ type: 'GET_INDEXED_DB_DATABASES', tabId: activeTab.id });
+    setIndexedDbLoading(false);
+    if (!response.ok) {
+      setError(response.error);
+      return;
+    }
+    setIndexedDbOverview(response.data);
+    const currentDb = indexedDbSelection?.databaseName;
+    const currentStore = indexedDbSelection?.objectStoreName;
+    const nextDb = response.data.databases.find((db) => db.name === currentDb) ?? response.data.databases[0] ?? null;
+    const nextStore = nextDb?.objectStores.find((store) => store.name === currentStore) ?? nextDb?.objectStores[0] ?? null;
+    if (nextDb && nextStore) {
+      const nextSelection = { databaseName: nextDb.name, objectStoreName: nextStore.name, selectedEntryIndex: indexedDbSelection?.selectedEntryIndex ?? 0 };
+      setIndexedDbSelection(nextSelection);
+      await refreshIndexedDbEntries(nextSelection);
+    } else {
+      setIndexedDbSelection(null);
+      setIndexedDbEntries(null);
+    }
+  }, [activeTab, indexedDbSelection?.databaseName, indexedDbSelection?.objectStoreName, indexedDbSelection?.selectedEntryIndex, send]);
+
+  const refreshIndexedDbEntries = useCallback(async (selection?: IndexedDbSelection) => {
+    if (!activeTab) return;
+    const chosen = selection ?? indexedDbSelection;
+    if (!chosen) {
+      setIndexedDbEntries(null);
+      return;
+    }
+    const response = await send<IndexedDbEntriesResult>({
+      type: 'GET_INDEXED_DB_ENTRIES',
+      tabId: activeTab.id,
+      databaseName: chosen.databaseName,
+      objectStoreName: chosen.objectStoreName,
+      skipCount: 0,
+      pageSize: 100
+    });
+    if (!response.ok) {
+      setError(response.error);
+      return;
+    }
+    setIndexedDbEntries(response.data);
+    const nextIndex = Math.min(chosen.selectedEntryIndex, Math.max(0, response.data.entries.length - 1));
+    setIndexedDbSelection({ ...chosen, selectedEntryIndex: nextIndex });
+  }, [activeTab, indexedDbSelection, send]);
+
   useEffect(() => {
     refreshActiveTab();
   }, [refreshActiveTab]);
@@ -153,6 +266,11 @@ export default function App() {
         setCookies([]);
         setCookieDraft(null);
         setSelectedCookieKey(null);
+        setWebStorage(null);
+        setWebStorageDraft(null);
+        setIndexedDbOverview(null);
+        setIndexedDbEntries(null);
+        setIndexedDbSelection(null);
         if (!preserveLog) {
           setEntries([]);
         }
@@ -166,6 +284,11 @@ export default function App() {
         setCookies([]);
         setCookieDraft(null);
         setSelectedCookieKey(null);
+        setWebStorage(null);
+        setWebStorageDraft(null);
+        setIndexedDbOverview(null);
+        setIndexedDbEntries(null);
+        setIndexedDbSelection(null);
         return;
       }
       if (event.type === 'INSPECT_MODE_CHANGED') {
@@ -216,6 +339,15 @@ export default function App() {
       refreshCookies();
     }
   }, [attached, panel, refreshCookies]);
+
+  useEffect(() => {
+    if (panel !== 'storage' || !attached) return;
+    if (storageMode === 'web') {
+      refreshWebStorage();
+    } else {
+      refreshIndexedDbOverview();
+    }
+  }, [attached, panel, refreshIndexedDbOverview, refreshWebStorage, storageMode]);
 
   async function attach() {
     if (!activeTab) return;
@@ -375,9 +507,86 @@ export default function App() {
   async function deleteCookie() {
     if (!activeTab || !cookieDraft) return;
     setError(null);
-  const response = await send<null>({ type: 'DELETE_COOKIE', tabId: activeTab.id, cookie: toCookieDeleteInput(cookieDraft) });
+    const response = await send<null>({ type: 'DELETE_COOKIE', tabId: activeTab.id, cookie: toCookieDeleteInput(cookieDraft) });
     if (response.ok) {
       await refreshCookies();
+    } else {
+      setError(response.error);
+    }
+  }
+
+  async function updateWebStorageItem() {
+    if (!activeTab || !webStorageDraft) return;
+    if (!webStorageDraft.key.trim()) {
+      setError('Storage key is required.');
+      return;
+    }
+    setError(null);
+    const response = await send<null>({
+      type: 'SET_WEB_STORAGE_ITEM',
+      tabId: activeTab.id,
+      area: webStorageDraft.area,
+      key: webStorageDraft.key,
+      value: webStorageDraft.value,
+      previousKey: webStorageDraft.previousKey.trim() ? webStorageDraft.previousKey : undefined
+    });
+    if (response.ok) {
+      await refreshWebStorage();
+    } else {
+      setError(response.error);
+    }
+  }
+
+  async function deleteWebStorageItemAction(area: WebStorageArea, key: string) {
+    if (!activeTab) return;
+    const response = await send<null>({ type: 'DELETE_WEB_STORAGE_ITEM', tabId: activeTab.id, area, key });
+    if (response.ok) {
+      await refreshWebStorage();
+    } else {
+      setError(response.error);
+    }
+  }
+
+  async function deleteIndexedDbEntryAction(key: IndexedDbKeySpec) {
+    if (!activeTab || !indexedDbSelection) return;
+    const response = await send<null>({
+      type: 'DELETE_INDEXED_DB_ENTRY',
+      tabId: activeTab.id,
+      databaseName: indexedDbSelection.databaseName,
+      objectStoreName: indexedDbSelection.objectStoreName,
+      key
+    });
+    if (response.ok) {
+      await refreshIndexedDbEntries(indexedDbSelection);
+    } else {
+      setError(response.error);
+    }
+  }
+
+  async function clearIndexedDbStoreAction() {
+    if (!activeTab || !indexedDbSelection) return;
+    const response = await send<null>({
+      type: 'CLEAR_INDEXED_DB_STORE',
+      tabId: activeTab.id,
+      databaseName: indexedDbSelection.databaseName,
+      objectStoreName: indexedDbSelection.objectStoreName
+    });
+    if (response.ok) {
+      await refreshIndexedDbEntries(indexedDbSelection);
+    } else {
+      setError(response.error);
+    }
+  }
+
+  async function deleteIndexedDbDatabaseAction(databaseName: string) {
+    if (!activeTab) return;
+    const response = await send<null>({
+      type: 'DELETE_INDEXED_DB_DATABASE',
+      tabId: activeTab.id,
+      databaseName
+    });
+    if (response.ok) {
+      await refreshIndexedDbOverview();
     } else {
       setError(response.error);
     }
@@ -410,6 +619,7 @@ export default function App() {
       <nav className="tabs">
         <button className={panel === 'console' ? 'active' : ''} onClick={() => setPanel('console')}>Console</button>
         <button className={panel === 'elements' ? 'active' : ''} onClick={() => { setPanel('elements'); if (attached && !rootNode) refreshDocument(); }}>Elements</button>
+        <button className={panel === 'storage' ? 'active' : ''} onClick={() => { setPanel('storage'); if (attached) { if (storageMode === 'web') refreshWebStorage(); else refreshIndexedDbOverview(); } }}>Storage</button>
         <button className={panel === 'cookies' ? 'active' : ''} onClick={() => { setPanel('cookies'); if (attached && cookiesRef.current.length === 0) refreshCookies(); }}>Cookies</button>
       </nav>
       <main className="panel">
@@ -440,6 +650,35 @@ export default function App() {
             removeAttribute={removeAttribute}
             inspecting={state?.inspecting === true}
             onToggleInspectMode={toggleInspectMode}
+          />
+        ) : panel === 'storage' ? (
+          <StoragePanel
+            attached={attached}
+            mode={storageMode}
+            setMode={setStorageMode}
+            webStorage={webStorage}
+            webStorageLoading={webStorageLoading}
+            webStorageArea={webStorageArea}
+            setWebStorageArea={setWebStorageArea}
+            webStorageSearch={webStorageSearch}
+            setWebStorageSearch={setWebStorageSearch}
+            webStorageDraft={webStorageDraft}
+            onChangeWebStorageDraft={setWebStorageDraft}
+            indexedDbOverview={indexedDbOverview}
+            indexedDbLoading={indexedDbLoading}
+            indexedDbSelection={indexedDbSelection}
+            indexedDbEntries={indexedDbEntries}
+            indexedDbSearch={indexedDbSearch}
+            setIndexedDbSearch={setIndexedDbSearch}
+            onRefreshWebStorage={refreshWebStorage}
+            onRefreshIndexedDbOverview={refreshIndexedDbOverview}
+            onRefreshIndexedDbEntries={refreshIndexedDbEntries}
+            onSetWebStorageItem={updateWebStorageItem}
+            onDeleteWebStorageItem={deleteWebStorageItemAction}
+            onSelectIndexedDb={setIndexedDbSelection}
+            onDeleteIndexedDbEntry={deleteIndexedDbEntryAction}
+            onClearIndexedDbStore={clearIndexedDbStoreAction}
+            onDeleteIndexedDbDatabase={deleteIndexedDbDatabaseAction}
           />
         ) : (
           <CookiesPanel
@@ -1061,6 +1300,202 @@ function CookiesPanel(props: {
           )}
         </aside>
       </div>
+    </section>
+  );
+}
+
+function StoragePanel(props: {
+  attached: boolean;
+  mode: StorageMode;
+  setMode: (mode: StorageMode) => void;
+  webStorage: WebStorageSnapshot | null;
+  webStorageLoading: boolean;
+  webStorageArea: WebStorageArea;
+  setWebStorageArea: (area: WebStorageArea) => void;
+  webStorageSearch: string;
+  setWebStorageSearch: (value: string) => void;
+  webStorageDraft: StorageDraft | null;
+  onChangeWebStorageDraft: (draft: StorageDraft | null) => void;
+  indexedDbOverview: IndexedDbDatabasesResult | null;
+  indexedDbLoading: boolean;
+  indexedDbSelection: IndexedDbSelection | null;
+  indexedDbEntries: IndexedDbEntriesResult | null;
+  indexedDbSearch: string;
+  setIndexedDbSearch: (value: string) => void;
+  onRefreshWebStorage: (area?: WebStorageArea) => void;
+  onRefreshIndexedDbOverview: () => void;
+  onRefreshIndexedDbEntries: (selection?: IndexedDbSelection) => void;
+  onSetWebStorageItem: () => void;
+  onDeleteWebStorageItem: (area: WebStorageArea, key: string) => void;
+  onSelectIndexedDb: (selection: IndexedDbSelection | null) => void;
+  onDeleteIndexedDbEntry: (key: IndexedDbKeySpec) => void;
+  onClearIndexedDbStore: () => void;
+  onDeleteIndexedDbDatabase: (databaseName: string) => void;
+}) {
+  const webItems = props.webStorage ? props.webStorage[props.webStorageArea] : [];
+  const filteredWebItems = useMemo(() => {
+    const query = props.webStorageSearch.trim().toLowerCase();
+    if (!query) return webItems;
+    return webItems.filter((item) => `${item.key} ${item.value}`.toLowerCase().includes(query));
+  }, [props.webStorageSearch, props.webStorageArea, props.webStorage]);
+
+  const selectedWebItem = filteredWebItems.find((item) => item.key === props.webStorageDraft?.key) ?? filteredWebItems[0] ?? null;
+
+  const selectedDb = props.indexedDbOverview?.databases.find((db) => db.name === props.indexedDbSelection?.databaseName) ?? null;
+  const selectedStore = selectedDb?.objectStores.find((store) => store.name === props.indexedDbSelection?.objectStoreName) ?? null;
+  const filteredIndexedEntries = useMemo(() => {
+    const query = props.indexedDbSearch.trim().toLowerCase();
+    const entries = props.indexedDbEntries?.entries ?? [];
+    if (!query) return entries;
+    return entries.filter((entry) => `${entry.keyText} ${entry.valueText}`.toLowerCase().includes(query));
+  }, [props.indexedDbEntries, props.indexedDbSearch]);
+  const selectedIndexedEntry = filteredIndexedEntries[props.indexedDbSelection?.selectedEntryIndex ?? 0] ?? null;
+
+  return (
+    <section className="storage">
+      <div className="toolbar">
+        <button className={props.mode === 'web' ? 'active' : ''} onClick={() => props.setMode('web')} disabled={!props.attached}>Web Storage</button>
+        <button className={props.mode === 'indexeddb' ? 'active' : ''} onClick={() => props.setMode('indexeddb')} disabled={!props.attached}>IndexedDB</button>
+        <span>{props.mode === 'web' ? (props.webStorageLoading ? 'Loading...' : `${webItems.length} items`) : (props.indexedDbLoading ? 'Loading...' : `${props.indexedDbOverview?.databases.length ?? 0} databases`)}</span>
+      </div>
+      {props.mode === 'web' ? (
+        <div className="storage-layout">
+          <div className="storage-list">
+            <div className="subtabs">
+              <button className={props.webStorageArea === 'localStorage' ? 'active' : ''} onClick={() => { props.setWebStorageArea('localStorage'); props.onRefreshWebStorage('localStorage'); }}>localStorage</button>
+              <button className={props.webStorageArea === 'sessionStorage' ? 'active' : ''} onClick={() => { props.setWebStorageArea('sessionStorage'); props.onRefreshWebStorage('sessionStorage'); }}>sessionStorage</button>
+              <button onClick={() => props.onChangeWebStorageDraft({ area: props.webStorageArea, key: '', value: '', previousKey: '' })}>New</button>
+            </div>
+            <div className="cookie-search">
+              <input value={props.webStorageSearch} onChange={(event) => props.setWebStorageSearch(event.target.value)} placeholder="Search storage" disabled={!props.attached} />
+            </div>
+            {filteredWebItems.length === 0 ? <div className="empty">No storage items found.</div> : filteredWebItems.map((item) => (
+              <button
+                key={`${item.key}`}
+                type="button"
+                className={`cookie-row ${selectedWebItem?.key === item.key ? 'selected' : ''}`}
+                onClick={() => props.onChangeWebStorageDraft({ area: props.webStorageArea, key: item.key, value: item.value, previousKey: item.key })}
+              >
+                <div className="cookie-main">
+                  <strong>{item.key}</strong>
+                  <span>{item.value}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+          <aside className="storage-editor">
+            {!props.webStorageDraft ? (
+              <div className="empty">Select a storage key to edit it.</div>
+            ) : (
+              <div className="cookie-editor">
+                <label>
+                  <span>Key</span>
+                  <input value={props.webStorageDraft.key} onChange={(event) => props.onChangeWebStorageDraft({ ...props.webStorageDraft!, key: event.target.value })} />
+                </label>
+                <label>
+                  <span>Value</span>
+                  <textarea value={props.webStorageDraft.value} onChange={(event) => props.onChangeWebStorageDraft({ ...props.webStorageDraft!, value: event.target.value })} rows={10} />
+                </label>
+                <div className="cookie-actions">
+                  <button onClick={props.onSetWebStorageItem}>Save</button>
+                  <button onClick={() => props.onDeleteWebStorageItem(props.webStorageArea, props.webStorageDraft!.key)}>Delete</button>
+                </div>
+                {selectedWebItem && <div className="cookie-readonly"><span>Current value: {selectedWebItem.value}</span></div>}
+              </div>
+            )}
+          </aside>
+        </div>
+      ) : (
+        <div className="storage-layout indexeddb">
+          <div className="storage-list">
+            <div className="subtabs">
+              <button onClick={props.onRefreshIndexedDbOverview} disabled={!props.attached}>Refresh</button>
+              <span>{props.indexedDbOverview?.origin ?? 'No active origin'}</span>
+            </div>
+            {props.indexedDbOverview?.databases.length ? props.indexedDbOverview.databases.map((db) => (
+              <div key={db.name} className="storage-db">
+                <button
+                  type="button"
+                  className={`cookie-row ${selectedDb?.name === db.name ? 'selected' : ''}`}
+                  onClick={() => {
+                    const firstStore = db.objectStores[0];
+                    const selection = firstStore ? { databaseName: db.name, objectStoreName: firstStore.name, selectedEntryIndex: 0 } : null;
+                    props.onSelectIndexedDb(selection);
+                    if (selection) props.onRefreshIndexedDbEntries(selection);
+                  }}
+                >
+                  <div className="cookie-main">
+                    <strong>{db.name}</strong>
+                    <span>version {db.version}</span>
+                  </div>
+                </button>
+                {selectedDb?.name === db.name && (
+                  <div className="db-stores">
+                    {db.objectStores.map((store) => (
+                      <button
+                        type="button"
+                        key={store.name}
+                        className={`store-row ${selectedStore?.name === store.name ? 'active' : ''}`}
+                        onClick={() => {
+                          const selection = { databaseName: db.name, objectStoreName: store.name, selectedEntryIndex: 0 };
+                          props.onSelectIndexedDb(selection);
+                          props.onRefreshIndexedDbEntries(selection);
+                        }}
+                      >
+                        {store.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )) : <div className="empty">No IndexedDB databases found.</div>}
+          </div>
+          <aside className="storage-editor">
+            {!selectedDb || !selectedStore || !props.indexedDbEntries ? (
+              <div className="empty">Select a database and object store.</div>
+            ) : (
+              <div className="cookie-editor">
+                <h2>{selectedDb.name} / {selectedStore.name}</h2>
+                <div className="cookie-readonly">
+                  <span>Key path: {stringifyUnknown(selectedStore.keyPath ?? 'none')}</span>
+                  <span>Auto increment: {String(Boolean(selectedStore.autoIncrement))}</span>
+                  <span>Entries: {props.indexedDbEntries.entries.length}</span>
+                </div>
+                <div className="cookie-search">
+                  <input value={props.indexedDbSearch} onChange={(event) => props.setIndexedDbSearch(event.target.value)} placeholder="Search entries" />
+                </div>
+                <div className="indexeddb-entry-list">
+                  {filteredIndexedEntries.length === 0 ? <div className="empty">No entries found.</div> : filteredIndexedEntries.map((entry, index) => (
+                    <button
+                      key={`${entry.keyText}-${index}`}
+                      type="button"
+                      className={`cookie-row ${props.indexedDbSelection?.selectedEntryIndex === index ? 'selected' : ''}`}
+                      onClick={() => props.onSelectIndexedDb({ databaseName: selectedDb.name, objectStoreName: selectedStore.name, selectedEntryIndex: index })}
+                    >
+                      <div className="cookie-main">
+                        <strong>{entry.keyText}</strong>
+                        <span>{entry.valueText}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {selectedIndexedEntry && (
+                  <div className="cookie-readonly">
+                    <span>Selected key: {selectedIndexedEntry.keyText}</span>
+                    <span>Value serializable: {String(selectedIndexedEntry.valueSerializable)}</span>
+                    <span>Value preview: {selectedIndexedEntry.valueText}</span>
+                  </div>
+                )}
+                <div className="cookie-actions">
+                  <button onClick={() => selectedIndexedEntry && props.onDeleteIndexedDbEntry(selectedIndexedEntry.keySpec)} disabled={!selectedIndexedEntry}>Delete entry</button>
+                  <button onClick={props.onClearIndexedDbStore}>Clear store</button>
+                  <button onClick={() => props.onDeleteIndexedDbDatabase(selectedDb.name)}>Delete database</button>
+                </div>
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
     </section>
   );
 }

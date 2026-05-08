@@ -1,11 +1,14 @@
 import { DebuggerSessionManager } from './debugger-session';
 import { isAllowedDebugUrl } from './url-policy';
-import type { CookieDeleteInput, CookieInput } from '../shared/cdp-types';
+import type { CookieDeleteInput, CookieInput, IndexedDbKeySpec, WebStorageSnapshot } from '../shared/cdp-types';
 import type {
   ActiveTabInfo,
   CookiesResult,
   ExtensionRequest,
-  ExtensionResponse
+  ExtensionResponse,
+  IndexedDbDatabasesResult,
+  IndexedDbEntriesResult,
+  WebStorageResult
 } from '../shared/extension-messages';
 
 const manager = new DebuggerSessionManager();
@@ -88,6 +91,22 @@ async function handleRequest(request: ExtensionRequest): Promise<ExtensionRespon
         return ok(await setCookie(request.tabId, request.cookie));
       case 'DELETE_COOKIE':
         return ok(await deleteCookie(request.tabId, request.cookie));
+      case 'GET_WEB_STORAGE':
+        return ok(await getWebStorage(request.tabId));
+      case 'SET_WEB_STORAGE_ITEM':
+        return ok(await setWebStorageItem(request.tabId, request.area, request.key, request.value, request.previousKey));
+      case 'DELETE_WEB_STORAGE_ITEM':
+        return ok(await deleteWebStorageItem(request.tabId, request.area, request.key));
+      case 'GET_INDEXED_DB_DATABASES':
+        return ok(await getIndexedDbDatabases(request.tabId));
+      case 'GET_INDEXED_DB_ENTRIES':
+        return ok(await getIndexedDbEntries(request.tabId, request.databaseName, request.objectStoreName, request.skipCount, request.pageSize));
+      case 'DELETE_INDEXED_DB_ENTRY':
+        return ok(await deleteIndexedDbEntry(request.tabId, request.databaseName, request.objectStoreName, request.key));
+      case 'CLEAR_INDEXED_DB_STORE':
+        return ok(await clearIndexedDbStore(request.tabId, request.databaseName, request.objectStoreName));
+      case 'DELETE_INDEXED_DB_DATABASE':
+        return ok(await deleteIndexedDbDatabase(request.tabId, request.databaseName));
       case 'START_INSPECT_MODE':
         await manager.startInspectMode(request.tabId);
         return ok(manager.getState(request.tabId));
@@ -197,6 +216,216 @@ async function deleteCookie(tabId: number, cookie: CookieDeleteInput): Promise<n
   };
   await manager.sendCommand(tabId, 'Network.deleteCookies', request);
   return null;
+}
+
+async function getWebStorage(tabId: number): Promise<WebStorageResult> {
+  const snapshot = await evaluateByValue<WebStorageSnapshot>(tabId, `(() => {
+    const read = (storage) => {
+      const entries = [];
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (key !== null) entries.push({ key: String(key), value: storage.getItem(key) ?? '' });
+      }
+      return entries;
+    };
+    return {
+      origin: location.origin,
+      localStorage: read(localStorage),
+      sessionStorage: read(sessionStorage)
+    };
+  })()`);
+  return snapshot;
+}
+
+async function setWebStorageItem(tabId: number, area: 'localStorage' | 'sessionStorage', key: string, value: string, previousKey?: string): Promise<null> {
+  await evaluateByValue<boolean>(tabId, `(() => {
+    const storage = ${area === 'localStorage' ? 'localStorage' : 'sessionStorage'};
+    const nextKey = ${JSON.stringify(key)};
+    const nextValue = ${JSON.stringify(value)};
+    const previousKey = ${previousKey ? JSON.stringify(previousKey) : 'undefined'};
+    if (previousKey && previousKey !== nextKey) storage.removeItem(previousKey);
+    storage.setItem(nextKey, nextValue);
+    return true;
+  })()`);
+  return null;
+}
+
+async function deleteWebStorageItem(tabId: number, area: 'localStorage' | 'sessionStorage', key: string): Promise<null> {
+  await evaluateByValue<boolean>(tabId, `(() => {
+    const storage = ${area === 'localStorage' ? 'localStorage' : 'sessionStorage'};
+    storage.removeItem(${JSON.stringify(key)});
+    return true;
+  })()`);
+  return null;
+}
+
+async function getIndexedDbDatabases(tabId: number): Promise<IndexedDbDatabasesResult> {
+  const origin = await getOrigin(tabId);
+  const snapshot = await evaluateByValue<IndexedDbDatabasesResult>(tabId, `(async () => {
+    const serializeKeyPath = (keyPath) => {
+      if (keyPath === null || keyPath === undefined) return null;
+      if (Array.isArray(keyPath)) return keyPath.map((item) => String(item));
+      return String(keyPath);
+    };
+    const openDatabase = (name) => new Promise((resolve, reject) => {
+      const request = indexedDB.open(name);
+      request.onerror = () => reject(request.error ?? new Error('Failed to open database.'));
+      request.onsuccess = () => resolve(request.result);
+    });
+    const databases = [];
+    const entries = await indexedDB.databases();
+    for (const item of entries) {
+      if (!item.name) continue;
+      const db = await openDatabase(item.name);
+      const objectStores = [];
+      for (const storeName of Array.from(db.objectStoreNames)) {
+        const tx = db.transaction(storeName, 'readonly');
+        const store = tx.objectStore(storeName);
+        const indexes = Array.from(store.indexNames).map((indexName) => {
+          const index = store.index(indexName);
+          return {
+            name: index.name,
+            keyPath: serializeKeyPath(index.keyPath),
+            unique: index.unique,
+            multiEntry: index.multiEntry
+          };
+        });
+        objectStores.push({
+          name: storeName,
+          keyPath: serializeKeyPath(store.keyPath),
+          autoIncrement: store.autoIncrement,
+          indexes
+        });
+      }
+      db.close();
+      databases.push({ name: item.name, version: item.version ?? 0, objectStores });
+    }
+    return { origin: location.origin, databases };
+  })()`);
+  return { origin, databases: snapshot.databases };
+}
+
+async function getIndexedDbEntries(tabId: number, databaseName: string, objectStoreName: string, skipCount = 0, pageSize = 100): Promise<IndexedDbEntriesResult> {
+  const result = await evaluateByValue<IndexedDbEntriesResult>(tabId, `(() => {
+    const serializeKey = (key) => {
+      if (key instanceof Date) return { type: 'date', value: key.toISOString() };
+      if (Array.isArray(key)) return { type: 'array', value: key.map(serializeKey) };
+      if (typeof key === 'number') return { type: 'number', value: key };
+      return { type: 'string', value: String(key) };
+    };
+    const keyText = (key) => {
+      if (key instanceof Date) return key.toISOString();
+      if (Array.isArray(key)) return '[' + key.map(keyText).join(', ') + ']';
+      if (typeof key === 'object' && key !== null) return JSON.stringify(key);
+      return String(key);
+    };
+    const valueText = (value) => {
+      try {
+        return { text: JSON.stringify(value, null, 2), serializable: true };
+      } catch {
+        return { text: String(value), serializable: false };
+      }
+    };
+    const openDatabase = (name) => new Promise((resolve, reject) => {
+      const request = indexedDB.open(name);
+      request.onerror = () => reject(request.error ?? new Error('Failed to open database.'));
+      request.onsuccess = () => resolve(request.result);
+    });
+    return (async () => {
+      const db = await openDatabase(${JSON.stringify(databaseName)});
+      const tx = db.transaction(${JSON.stringify(objectStoreName)}, 'readonly');
+      const store = tx.objectStore(${JSON.stringify(objectStoreName)});
+      const keys = await new Promise((resolve, reject) => {
+        const request = store.getAllKeys(undefined, ${pageSize});
+        request.onerror = () => reject(request.error ?? new Error('Failed to read keys.'));
+        request.onsuccess = () => resolve(request.result ?? []);
+      });
+      const values = await new Promise((resolve, reject) => {
+        const request = store.getAll(undefined, ${pageSize});
+        request.onerror = () => reject(request.error ?? new Error('Failed to read values.'));
+        request.onsuccess = () => resolve(request.result ?? []);
+      });
+      const entries = [];
+      for (let index = ${skipCount}; index < Math.min(keys.length, values.length, ${skipCount} + ${pageSize}); index += 1) {
+        const key = keys[index];
+        const value = values[index];
+        const text = valueText(value);
+        entries.push({
+          keySpec: serializeKey(key),
+          keyText: keyText(key),
+          valueText: text.text,
+          valueSerializable: text.serializable
+        });
+      }
+      db.close();
+      return { databaseName: ${JSON.stringify(databaseName)}, objectStoreName: ${JSON.stringify(objectStoreName)}, entries, hasMore: keys.length > ${skipCount} + ${pageSize} };
+    })();
+  })()`);
+  return result;
+}
+
+async function deleteIndexedDbEntry(tabId: number, databaseName: string, objectStoreName: string, key: unknown): Promise<null> {
+  const origin = await getOrigin(tabId);
+  await manager.sendCommand(tabId, 'IndexedDB.deleteObjectStoreEntries', {
+    securityOrigin: origin,
+    databaseName,
+    objectStoreName,
+    keyRange: exactKeyRange(key)
+  });
+  return null;
+}
+
+async function clearIndexedDbStore(tabId: number, databaseName: string, objectStoreName: string): Promise<null> {
+  const origin = await getOrigin(tabId);
+  await manager.sendCommand(tabId, 'IndexedDB.clearObjectStore', {
+    securityOrigin: origin,
+    databaseName,
+    objectStoreName
+  });
+  return null;
+}
+
+async function deleteIndexedDbDatabase(tabId: number, databaseName: string): Promise<null> {
+  const origin = await getOrigin(tabId);
+  await manager.sendCommand(tabId, 'IndexedDB.deleteDatabase', {
+    securityOrigin: origin,
+    databaseName
+  });
+  return null;
+}
+
+async function evaluateByValue<T>(tabId: number, expression: string): Promise<T> {
+  const response = await manager.sendCommand<{ result?: { value?: T } }>(tabId, 'Runtime.evaluate', {
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+    includeCommandLineAPI: true
+  });
+  return response.result?.value as T;
+}
+
+async function getOrigin(tabId: number): Promise<string> {
+  const tab = await chrome.tabs.get(tabId);
+  if (!tab.url) throw new Error('The target tab URL is unavailable.');
+  return new URL(tab.url).origin;
+}
+
+function exactKeyRange(key: unknown): Record<string, unknown> | string | number | unknown[] {
+  const normalized = toIndexedDbKey(key);
+  return { lower: normalized, upper: normalized };
+}
+
+function toIndexedDbKey(key: unknown): Record<string, unknown> | string | number | unknown[] {
+  if (typeof key === 'number' || typeof key === 'string') return key;
+  if (Array.isArray(key)) return key.map((item) => toIndexedDbKey(item));
+  if (key && typeof key === 'object' && 'type' in key && 'value' in key) {
+    const typed = key as IndexedDbKeySpec;
+    if (typed.type === 'number') return typed.value;
+    if (typed.type === 'string') return typed.value;
+    if (typed.type === 'date') return { type: 'date', value: Date.parse(typed.value) };
+    if (typed.type === 'array') return typed.value.map((item) => toIndexedDbKey(item));
+  }
+  return String(key);
 }
 
 async function openDetachedWindow(tabId: number): Promise<ExtensionResponse<null>> {
