@@ -1,6 +1,6 @@
 {
   "name": "bluesec-inspector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Chrome MV3 side-panel inspector for Console and Elements workflows using chrome.debugger and Chrome DevTools Protocol.",
   "private": true,
   "type": "module",
