@@ -71,6 +71,7 @@ export class DebuggerSessionManager {
       await this.sendCommand(tabId, 'Runtime.enable');
       await this.sendCommand(tabId, 'Console.enable');
       await this.sendCommand(tabId, 'Log.enable');
+      await this.sendCommand(tabId, 'Network.enable');
       await this.sendCommand(tabId, 'DOM.enable');
       await this.sendCommand(tabId, 'CSS.enable');
       await this.sendCommand(tabId, 'Overlay.enable');

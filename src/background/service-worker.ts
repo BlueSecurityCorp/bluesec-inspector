@@ -1,7 +1,9 @@
 import { DebuggerSessionManager } from './debugger-session';
 import { isAllowedDebugUrl } from './url-policy';
+import type { CookieDeleteInput, CookieInput } from '../shared/cdp-types';
 import type {
   ActiveTabInfo,
+  CookiesResult,
   ExtensionRequest,
   ExtensionResponse
 } from '../shared/extension-messages';
@@ -80,6 +82,12 @@ async function handleRequest(request: ExtensionRequest): Promise<ExtensionRespon
       case 'RELEASE_CONSOLE_OBJECTS':
         await manager.releaseConsoleObjects(request.tabId);
         return ok(null);
+      case 'GET_COOKIES':
+        return ok(await getCookies(request.tabId));
+      case 'SET_COOKIE':
+        return ok(await setCookie(request.tabId, request.cookie));
+      case 'DELETE_COOKIE':
+        return ok(await deleteCookie(request.tabId, request.cookie));
       case 'START_INSPECT_MODE':
         await manager.startInspectMode(request.tabId);
         return ok(manager.getState(request.tabId));
@@ -147,6 +155,48 @@ async function getTab(tabId: number): Promise<ActiveTabInfo | null> {
   const tab = await chrome.tabs.get(tabId);
   if (!tab?.id) return null;
   return { id: tab.id, title: tab.title, url: tab.url };
+}
+
+async function getCookies(tabId: number): Promise<CookiesResult> {
+  const tab = await chrome.tabs.get(tabId);
+  const url = tab.url ?? undefined;
+  const response = await manager.sendCommand<{ cookies?: Array<Record<string, unknown>> }>(tabId, 'Network.getCookies', {
+    ...(url ? { urls: [url] } : {})
+  });
+  return { cookies: (response.cookies ?? []) as CookiesResult['cookies'] };
+}
+
+async function setCookie(tabId: number, cookie: CookieInput): Promise<null> {
+  const tab = await chrome.tabs.get(tabId);
+  const request: Record<string, unknown> = {
+    name: cookie.name,
+    value: cookie.value,
+    ...(cookie.domain ? { domain: cookie.domain } : {}),
+    ...(cookie.path ? { path: cookie.path } : {}),
+    ...(cookie.secure !== undefined ? { secure: cookie.secure } : {}),
+    ...(cookie.httpOnly !== undefined ? { httpOnly: cookie.httpOnly } : {}),
+    ...(cookie.sameSite ? { sameSite: cookie.sameSite } : {}),
+    ...(cookie.expires !== undefined ? { expires: cookie.expires } : {}),
+    ...(cookie.priority ? { priority: cookie.priority } : {}),
+    ...(cookie.partitionKey ? { partitionKey: cookie.partitionKey } : {})
+  };
+  if (!cookie.domain && !cookie.path && tab.url) {
+    request.url = tab.url;
+  }
+  await manager.sendCommand(tabId, 'Network.setCookie', request);
+  return null;
+}
+
+async function deleteCookie(tabId: number, cookie: CookieDeleteInput): Promise<null> {
+  const request: Record<string, unknown> = {
+    name: cookie.name,
+    ...(cookie.url ? { url: cookie.url } : {}),
+    ...(cookie.domain ? { domain: cookie.domain } : {}),
+    ...(cookie.path ? { path: cookie.path } : {}),
+    ...(cookie.partitionKey ? { partitionKey: cookie.partitionKey } : {})
+  };
+  await manager.sendCommand(tabId, 'Network.deleteCookies', request);
+  return null;
 }
 
 async function openDetachedWindow(tabId: number): Promise<ExtensionResponse<null>> {

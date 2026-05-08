@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ComputedStyleResult,
+  CookiesResult,
   DocumentResult,
   EvaluateResult,
   ExtensionEvent,
@@ -10,10 +11,10 @@ import type {
   MatchedStylesResult,
   SessionStateResult,
 } from '../shared/extension-messages';
-import type { DomNode, RemoteObjectLite } from '../shared/cdp-types';
+import type { Cookie, CookieDeleteInput, CookieInput, CookiePriority, CookieSameSite, DomNode, RemoteObjectLite } from '../shared/cdp-types';
 import { makeId } from '../shared/utils';
 
-type Panel = 'console' | 'elements';
+type Panel = 'console' | 'elements' | 'cookies';
 type ConsoleEntry = {
   id: string;
   ts: number;
@@ -25,6 +26,18 @@ type ConsoleEntry = {
 };
 
 type ActiveTab = { id: number; title?: string; url?: string };
+type CookieDraft = {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  session: boolean;
+  sameSite: CookieSameSite | '';
+  priority: CookiePriority | '';
+  expiresText: string;
+};
 
 export default function App() {
   const fixedTabId = useMemo(() => {
@@ -44,6 +57,13 @@ export default function App() {
   const [pendingPickedNodeId, setPendingPickedNodeId] = useState<number | null>(null);
   const [matchedStyles, setMatchedStyles] = useState<MatchedStylesResult | null>(null);
   const [computedStyle, setComputedStyle] = useState<ComputedStyleResult | null>(null);
+  const [cookies, setCookies] = useState<Cookie[]>([]);
+  const cookiesRef = useRef<Cookie[]>([]);
+  const [cookiesLoading, setCookiesLoading] = useState(false);
+  const [cookiesSearch, setCookiesSearch] = useState('');
+  const [selectedCookieKey, setSelectedCookieKey] = useState<string | null>(null);
+  const selectedCookieKeyRef = useRef<string | null>(null);
+  const [cookieDraft, setCookieDraft] = useState<CookieDraft | null>(null);
   const send = useCallback(<T,>(request: ExtensionRequest) => sendMessage<T>(request), []);
 
   useEffect(() => {
@@ -55,6 +75,20 @@ export default function App() {
   useEffect(() => {
     rootNodeRef.current = rootNode;
   }, [rootNode]);
+
+  useEffect(() => {
+    cookiesRef.current = cookies;
+  }, [cookies]);
+
+  useEffect(() => {
+    setCookies([]);
+    setSelectedCookieKey(null);
+    setCookieDraft(null);
+  }, [activeTab?.id]);
+
+  useEffect(() => {
+    selectedCookieKeyRef.current = selectedCookieKey;
+  }, [selectedCookieKey]);
 
   const refreshActiveTab = useCallback(async () => {
     const response = await (fixedTabId ? send<ActiveTab | null>({ type: 'GET_TAB', tabId: fixedTabId }) : send<ActiveTab | null>({ type: 'GET_ACTIVE_TAB' }));
@@ -82,6 +116,26 @@ export default function App() {
     }
   }, [activeTab, send]);
 
+  const refreshCookies = useCallback(async () => {
+    if (!activeTab) return;
+    setCookiesLoading(true);
+    const response = await send<CookiesResult>({ type: 'GET_COOKIES', tabId: activeTab.id });
+    setCookiesLoading(false);
+    if (!response.ok) {
+      setError(response.error);
+      return;
+    }
+    setCookies(response.data.cookies);
+    const current = response.data.cookies.find((cookie) => cookieKey(cookie) === selectedCookieKeyRef.current) ?? response.data.cookies[0] ?? null;
+    if (current) {
+      setSelectedCookieKey(cookieKey(current));
+      setCookieDraft(toCookieDraft(current));
+    } else {
+      setSelectedCookieKey(null);
+      setCookieDraft(null);
+    }
+  }, [activeTab, send]);
+
   useEffect(() => {
     refreshActiveTab();
   }, [refreshActiveTab]);
@@ -96,6 +150,9 @@ export default function App() {
         setPendingPickedNodeId(null);
         setMatchedStyles(null);
         setComputedStyle(null);
+        setCookies([]);
+        setCookieDraft(null);
+        setSelectedCookieKey(null);
         if (!preserveLog) {
           setEntries([]);
         }
@@ -106,6 +163,9 @@ export default function App() {
       }
       if (event.type === 'DETACHED') {
         setState((previous) => ({ tabId: activeTab.id, attached: false, inspecting: false, url: previous?.url ?? activeTab.url, title: previous?.title ?? activeTab.title, error: event.reason }));
+        setCookies([]);
+        setCookieDraft(null);
+        setSelectedCookieKey(null);
         return;
       }
       if (event.type === 'INSPECT_MODE_CHANGED') {
@@ -150,6 +210,12 @@ export default function App() {
 
   const attached = state?.attached === true;
   const policy = useMemo(() => getPolicyStatus(activeTab?.url), [activeTab?.url]);
+
+  useEffect(() => {
+    if (panel === 'cookies' && attached) {
+      refreshCookies();
+    }
+  }, [attached, panel, refreshCookies]);
 
   async function attach() {
     if (!activeTab) return;
@@ -286,6 +352,37 @@ export default function App() {
     else setError(response.error);
   }
 
+  function selectCookie(cookie: Cookie) {
+    setSelectedCookieKey(cookieKey(cookie));
+    setCookieDraft(toCookieDraft(cookie));
+  }
+
+  async function updateCookie() {
+    if (!activeTab || !cookieDraft) return;
+    if (!cookieDraft.session && !cookieDraft.expiresText) {
+      setError('Expiration date is required when Session is off.');
+      return;
+    }
+    setError(null);
+    const response = await send<null>({ type: 'SET_COOKIE', tabId: activeTab.id, cookie: toCookieInput(cookieDraft) });
+    if (response.ok) {
+      await refreshCookies();
+    } else {
+      setError(response.error);
+    }
+  }
+
+  async function deleteCookie() {
+    if (!activeTab || !cookieDraft) return;
+    setError(null);
+  const response = await send<null>({ type: 'DELETE_COOKIE', tabId: activeTab.id, cookie: toCookieDeleteInput(cookieDraft) });
+    if (response.ok) {
+      await refreshCookies();
+    } else {
+      setError(response.error);
+    }
+  }
+
   return (
     <div className="app">
       <header className="header">
@@ -313,6 +410,7 @@ export default function App() {
       <nav className="tabs">
         <button className={panel === 'console' ? 'active' : ''} onClick={() => setPanel('console')}>Console</button>
         <button className={panel === 'elements' ? 'active' : ''} onClick={() => { setPanel('elements'); if (attached && !rootNode) refreshDocument(); }}>Elements</button>
+        <button className={panel === 'cookies' ? 'active' : ''} onClick={() => { setPanel('cookies'); if (attached && cookiesRef.current.length === 0) refreshCookies(); }}>Cookies</button>
       </nav>
       <main className="panel">
         {panel === 'console' ? (
@@ -326,7 +424,7 @@ export default function App() {
             exportLogs={exportLogs}
             tabId={activeTab?.id}
           />
-        ) : (
+        ) : panel === 'elements' ? (
           <ElementsPanel
             attached={attached}
             rootNode={rootNode}
@@ -342,6 +440,22 @@ export default function App() {
             removeAttribute={removeAttribute}
             inspecting={state?.inspecting === true}
             onToggleInspectMode={toggleInspectMode}
+          />
+        ) : (
+          <CookiesPanel
+            attached={attached}
+            url={activeTab?.url}
+            cookies={cookies}
+            loading={cookiesLoading}
+            search={cookiesSearch}
+            setSearch={setCookiesSearch}
+            selectedKey={selectedCookieKey}
+            draft={cookieDraft}
+            onSelect={selectCookie}
+            onRefresh={refreshCookies}
+            onChangeDraft={(draft) => setCookieDraft(draft)}
+            onSave={updateCookie}
+            onDelete={deleteCookie}
           />
         )}
       </main>
@@ -814,6 +928,143 @@ function StylesPane({ matchedStyles, computedStyle }: { matchedStyles: MatchedSt
   );
 }
 
+function CookiesPanel(props: {
+  attached: boolean;
+  url?: string;
+  cookies: Cookie[];
+  loading: boolean;
+  search: string;
+  setSearch: (value: string) => void;
+  selectedKey: string | null;
+  draft: CookieDraft | null;
+  onSelect: (cookie: Cookie) => void;
+  onRefresh: () => void;
+  onChangeDraft: (draft: CookieDraft) => void;
+  onSave: () => void;
+  onDelete: () => void;
+}) {
+  const filteredCookies = useMemo(() => {
+    const query = props.search.trim().toLowerCase();
+    if (!query) return props.cookies;
+    return props.cookies.filter((cookie) => {
+      const haystack = [cookie.name, cookie.value, cookie.domain, cookie.path, cookie.sameSite ?? '', cookie.priority ?? '']
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [props.cookies, props.search]);
+
+  const selectedCookie = filteredCookies.find((cookie) => cookieKey(cookie) === props.selectedKey) ?? props.cookies.find((cookie) => cookieKey(cookie) === props.selectedKey) ?? null;
+
+  return (
+    <section className="cookies">
+      <div className="toolbar">
+        <button onClick={props.onRefresh} disabled={!props.attached || props.loading}>Refresh</button>
+        <span>{props.cookies.length} cookies</span>
+        <span className="muted">{props.url ?? 'No active tab'}</span>
+        {props.loading && <span>Loading...</span>}
+      </div>
+      <div className="cookies-layout">
+        <div className="cookie-list">
+          <div className="cookie-search">
+            <input value={props.search} onChange={(event) => props.setSearch(event.target.value)} placeholder="Search cookies" disabled={!props.attached} />
+          </div>
+          {props.attached && !props.loading && filteredCookies.length === 0 && <div className="empty">No cookies found for this page.</div>}
+          {filteredCookies.map((cookie) => {
+            const selected = props.selectedKey === cookieKey(cookie);
+            return (
+              <button
+                key={cookieKey(cookie)}
+                className={`cookie-row ${selected ? 'selected' : ''}`}
+                onClick={() => props.onSelect(cookie)}
+                type="button"
+              >
+                <div className="cookie-main">
+                  <strong>{cookie.name}</strong>
+                  <span>{cookie.value}</span>
+                </div>
+                <div className="cookie-meta">
+                  <span>{cookie.domain}</span>
+                  <span>{cookie.path}</span>
+                  <span className="flag-chip">{cookie.secure ? 'Secure' : 'Not secure'}</span>
+                  <span className="flag-chip">{cookie.httpOnly ? 'HttpOnly' : 'Script accessible'}</span>
+                  {cookie.sameSite && <span className="flag-chip">{cookie.sameSite}</span>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <aside className="cookie-details">
+          {!selectedCookie || !props.draft ? (
+            <div className="empty">Select a cookie to inspect and edit its flags.</div>
+          ) : (
+            <div className="cookie-editor">
+              <h2>{selectedCookie.name}</h2>
+              <label>
+                <span>Value</span>
+                <input value={props.draft.value} onChange={(event) => props.onChangeDraft({ ...props.draft!, value: event.target.value })} />
+              </label>
+              <div className="cookie-grid">
+                <label>
+                  <span>Domain</span>
+                  <input value={props.draft.domain} readOnly />
+                </label>
+                <label>
+                  <span>Path</span>
+                  <input value={props.draft.path} readOnly />
+                </label>
+              </div>
+              <div className="cookie-grid flags">
+                <label><input type="checkbox" checked={props.draft.secure} onChange={(event) => props.onChangeDraft({ ...props.draft!, secure: event.target.checked })} /> Secure</label>
+                <label><input type="checkbox" checked={props.draft.httpOnly} onChange={(event) => props.onChangeDraft({ ...props.draft!, httpOnly: event.target.checked })} /> HttpOnly</label>
+                <label><input type="checkbox" checked={props.draft.session} onChange={(event) => props.onChangeDraft({ ...props.draft!, session: event.target.checked })} /> Session</label>
+              </div>
+              <div className="cookie-grid">
+                <label>
+                  <span>SameSite</span>
+                  <select value={props.draft.sameSite} onChange={(event) => props.onChangeDraft({ ...props.draft!, sameSite: event.target.value as CookieSameSite | '' })}>
+                    <option value="">Unset</option>
+                    <option value="Lax">Lax</option>
+                    <option value="Strict">Strict</option>
+                    <option value="None">None</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Priority</span>
+                  <select value={props.draft.priority} onChange={(event) => props.onChangeDraft({ ...props.draft!, priority: event.target.value as CookiePriority | '' })}>
+                    <option value="">Unset</option>
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                <span>Expires</span>
+                <input
+                  type="datetime-local"
+                  value={props.draft.expiresText}
+                  disabled={props.draft.session}
+                  onChange={(event) => props.onChangeDraft({ ...props.draft!, expiresText: event.target.value })}
+                />
+              </label>
+              <div className="cookie-readonly">
+                <span>Partition key: {selectedCookie.partitionKey ? stringifyUnknown(selectedCookie.partitionKey) : 'none'}</span>
+                <span>Source: {selectedCookie.sourceScheme ?? 'unknown'} / {selectedCookie.sourcePort ?? 'unknown'}</span>
+                <span>Size: {selectedCookie.size ?? 'unknown'}</span>
+              </div>
+              <div className="cookie-actions">
+                <button onClick={props.onSave}>Save</button>
+                <button onClick={props.onDelete}>Delete</button>
+              </div>
+            </div>
+          )}
+        </aside>
+      </div>
+    </section>
+  );
+}
+
 function StyleBlock({ title, properties }: { title: string; properties: Array<{ name: string; value: string; disabled?: boolean }> }) {
   const visible = properties.filter((property) => !property.disabled && property.name && property.value);
   return (
@@ -824,6 +1075,54 @@ function StyleBlock({ title, properties }: { title: string; properties: Array<{ 
       ))}
     </div>
   );
+}
+
+function cookieKey(cookie: Cookie): string {
+  return `${cookie.name}|${cookie.domain}|${cookie.path}|${cookie.partitionKey ? JSON.stringify(cookie.partitionKey) : ''}`;
+}
+
+function toCookieDraft(cookie: Cookie): CookieDraft {
+  return {
+    name: cookie.name,
+    value: cookie.value,
+    domain: cookie.domain,
+    path: cookie.path,
+    secure: Boolean(cookie.secure),
+    httpOnly: Boolean(cookie.httpOnly),
+    session: cookie.session !== false,
+    sameSite: cookie.sameSite ?? '',
+    priority: cookie.priority ?? '',
+    expiresText: cookie.expires && cookie.expires > 0 ? toDatetimeLocal(cookie.expires) : ''
+  };
+}
+
+function toCookieInput(draft: CookieDraft): CookieInput {
+  return {
+    name: draft.name,
+    value: draft.value,
+    domain: draft.domain,
+    path: draft.path,
+    secure: draft.secure,
+    httpOnly: draft.httpOnly,
+    ...(draft.sameSite ? { sameSite: draft.sameSite } : {}),
+    ...(draft.priority ? { priority: draft.priority } : {}),
+    ...(!draft.session && draft.expiresText ? { expires: fromDatetimeLocal(draft.expiresText) } : {})
+  };
+}
+
+function toCookieDeleteInput(draft: CookieDraft): CookieDeleteInput {
+  return { name: draft.name, domain: draft.domain, path: draft.path };
+}
+
+function toDatetimeLocal(expires: number): string {
+  const date = new Date(expires * 1000);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function fromDatetimeLocal(value: string): number {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? 0 : Math.floor(parsed.getTime() / 1000);
 }
 
 async function sendMessage<T>(request: ExtensionRequest): Promise<ExtensionResponse<T>> {

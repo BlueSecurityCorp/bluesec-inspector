@@ -61,3 +61,49 @@ export type MatchedStyles = {
 };
 
 export type ComputedStyle = Array<{ name: string; value: string }>;
+
+export type CookieSameSite = 'Strict' | 'Lax' | 'None';
+export type CookiePriority = 'Low' | 'Medium' | 'High';
+export type CookiePartitionKey = {
+  topLevelSite?: string;
+  hasCrossSiteAncestor?: boolean;
+};
+
+export type Cookie = {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires?: number | null;
+  size?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  session?: boolean;
+  sameSite?: CookieSameSite;
+  priority?: CookiePriority;
+  sourceScheme?: string;
+  sourcePort?: number;
+  partitionKey?: CookiePartitionKey;
+  partitionKeyOpaque?: boolean;
+};
+
+export type CookieInput = {
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: CookieSameSite;
+  expires?: number;
+  priority?: CookiePriority;
+  partitionKey?: CookiePartitionKey;
+};
+
+export type CookieDeleteInput = {
+  name: string;
+  domain?: string;
+  path?: string;
+  url?: string;
+  partitionKey?: CookiePartitionKey;
+};

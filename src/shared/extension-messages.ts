@@ -1,4 +1,4 @@
-import type { ComputedStyle, DomNode, MatchedStyles, RemoteObjectLite, SessionState } from './cdp-types';
+import type { ComputedStyle, Cookie, CookieDeleteInput, CookieInput, DomNode, MatchedStyles, RemoteObjectLite, SessionState } from './cdp-types';
 
 export type ActiveTabInfo = {
   id: number;
@@ -22,6 +22,9 @@ export type ExtensionRequest =
   | { type: 'GET_PROPERTIES'; tabId: number; objectId: string }
   | { type: 'RELEASE_CONSOLE_OBJECTS'; tabId: number }
   | { type: 'GET_DOCUMENT'; tabId: number }
+  | { type: 'GET_COOKIES'; tabId: number }
+  | { type: 'SET_COOKIE'; tabId: number; cookie: CookieInput }
+  | { type: 'DELETE_COOKIE'; tabId: number; cookie: CookieDeleteInput }
   | { type: 'START_INSPECT_MODE'; tabId: number }
   | { type: 'STOP_INSPECT_MODE'; tabId: number }
   | { type: 'REQUEST_CHILD_NODES'; tabId: number; nodeId: number }
@@ -58,6 +61,7 @@ export type GetPropertiesResult = {
 };
 
 export type DocumentResult = { root: DomNode };
+export type CookiesResult = { cookies: Cookie[] };
 export type MatchedStylesResult = MatchedStyles;
 export type ComputedStyleResult = { computedStyle: ComputedStyle };
 export type SessionStateResult = SessionState;
