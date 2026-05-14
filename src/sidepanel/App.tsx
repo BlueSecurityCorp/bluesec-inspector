@@ -81,9 +81,8 @@ export default function App() {
   const [entries, setEntries] = useState<ConsoleEntry[]>([]);
   const [preserveLog, setPreserveLog] = useState(false);
   const [rootNode, setRootNode] = useState<DomNode | null>(null);
-  const rootNodeRef = useRef<DomNode | null>(null);
   const [selectedNode, setSelectedNode] = useState<DomNode | null>(null);
-  const [pendingPickedNodeId, setPendingPickedNodeId] = useState<number | null>(null);
+  const [pendingPickedNode, setPendingPickedNode] = useState<{ nodeId: number; backendNodeId?: number } | null>(null);
   const [matchedStyles, setMatchedStyles] = useState<MatchedStylesResult | null>(null);
   const [computedStyle, setComputedStyle] = useState<ComputedStyleResult | null>(null);
   const [cookies, setCookies] = useState<Cookie[]>([]);
@@ -111,10 +110,6 @@ export default function App() {
       setPreserveLog(Boolean(result.preserveLog));
     }).catch(() => undefined);
   }, []);
-
-  useEffect(() => {
-    rootNodeRef.current = rootNode;
-  }, [rootNode]);
 
   useEffect(() => {
     cookiesRef.current = cookies;
@@ -148,14 +143,16 @@ export default function App() {
     }
   }, [fixedTabId, send]);
 
-  const refreshDocument = useCallback(async () => {
+  const refreshDocument = useCallback(async (options?: { depth?: number; clearSelection?: boolean }) => {
     if (!activeTab) return;
-    const response = await send<DocumentResult>({ type: 'GET_DOCUMENT', tabId: activeTab.id });
+    const response = await send<DocumentResult>({ type: 'GET_DOCUMENT', tabId: activeTab.id, depth: options?.depth });
     if (response.ok) {
       setRootNode(response.data.root);
-      setSelectedNode(null);
-      setMatchedStyles(null);
-      setComputedStyle(null);
+      if (options?.clearSelection !== false) {
+        setSelectedNode(null);
+        setMatchedStyles(null);
+        setComputedStyle(null);
+      }
     } else {
       setError(response.error);
     }
@@ -260,7 +257,7 @@ export default function App() {
         setState((previous) => ({ tabId: activeTab.id, attached: true, inspecting: false, url: previous?.url ?? activeTab.url, title: previous?.title ?? activeTab.title }));
         setRootNode(null);
         setSelectedNode(null);
-        setPendingPickedNodeId(null);
+        setPendingPickedNode(null);
         setMatchedStyles(null);
         setComputedStyle(null);
         setCookies([]);
@@ -298,10 +295,8 @@ export default function App() {
       if (event.type === 'ELEMENT_PICKED') {
         setPanel('elements');
         setState((previous) => ({ tabId: activeTab.id, attached: true, inspecting: false, url: previous?.url ?? activeTab.url, title: previous?.title ?? activeTab.title }));
-        setPendingPickedNodeId(event.nodeId);
-        if (!rootNodeRef.current) {
-          refreshDocument();
-        }
+        setPendingPickedNode({ nodeId: event.nodeId, backendNodeId: event.backendNodeId });
+        refreshDocument({ depth: -1, clearSelection: false });
         return;
       }
       if (event.type === 'CONSOLE_EVENT') {
@@ -448,13 +443,13 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!pendingPickedNodeId || !rootNode) return;
-    const picked = findNodeById(rootNode, pendingPickedNodeId);
+    if (!pendingPickedNode || !rootNode) return;
+    const picked = findNode(rootNode, pendingPickedNode);
     if (!picked) return;
-    setPendingPickedNodeId(null);
+    setPendingPickedNode(null);
     setPanel('elements');
     selectNode(picked);
-  }, [pendingPickedNodeId, rootNode]);
+  }, [pendingPickedNode, rootNode]);
 
   async function requestChildren(node: DomNode) {
     if (!activeTab) return;
@@ -915,7 +910,7 @@ function ElementsPanel(props: {
   matchedStyles: MatchedStylesResult | null;
   computedStyle: ComputedStyleResult | null;
   refreshDocument: () => void;
-  requestChildren: (node: DomNode) => void;
+  requestChildren: (node: DomNode) => Promise<void>;
   selectNode: (node: DomNode) => void;
   highlightNode: (node: DomNode) => void;
   hideHighlight: () => void;
@@ -937,7 +932,18 @@ function ElementsPanel(props: {
       return;
     }
     setExpandedIds(buildInitialExpandedIds(props.rootNode));
-  }, [props.rootNode]);
+  }, [props.rootNode?.nodeId]);
+
+  useEffect(() => {
+    if (!props.rootNode || !props.selectedNode) return;
+    const ancestorIds = findAncestorIds(props.rootNode, props.selectedNode.nodeId);
+    if (!ancestorIds.length) return;
+    setExpandedIds((current) => {
+      const nextSet = new Set(current);
+      ancestorIds.forEach((nodeId) => nextSet.add(nodeId));
+      return nextSet;
+    });
+  }, [props.rootNode, props.selectedNode?.nodeId]);
 
   useEffect(() => {
     const selectedId = props.selectedNode?.nodeId;
@@ -963,8 +969,17 @@ function ElementsPanel(props: {
     });
   }
 
-  function toggleExpanded(nodeId: number) {
-    setExpanded(nodeId, !isExpanded(nodeId));
+  async function expandNode(node: DomNode) {
+    if (!node.children?.length && node.childNodeCount) await props.requestChildren(node);
+    setExpanded(node.nodeId, true);
+  }
+
+  function toggleExpanded(node: DomNode) {
+    if (isExpanded(node.nodeId)) {
+      setExpanded(node.nodeId, false);
+      return;
+    }
+    expandNode(node);
   }
 
   function selectByIndex(index: number) {
@@ -996,7 +1011,7 @@ function ElementsPanel(props: {
       event.preventDefault();
       if (!current) return;
       if (current.hasChildren && !isExpanded(current.node.nodeId)) {
-        setExpanded(current.node.nodeId, true);
+        expandNode(current.node);
         return;
       }
       if (current.node.children?.[0]) {
@@ -1070,8 +1085,8 @@ function DomNodeRow(props: {
   depth: number;
   selectedId?: number;
   isExpanded: (nodeId: number) => boolean;
-  toggleExpanded: (nodeId: number) => void;
-  requestChildren: (node: DomNode) => void;
+  toggleExpanded: (node: DomNode) => void;
+  requestChildren: (node: DomNode) => Promise<void>;
   highlightNode: (node: DomNode) => void;
   hideHighlight: () => void;
   focusTree: () => void;
@@ -1079,9 +1094,8 @@ function DomNodeRow(props: {
 }) {
   const hasChildren = Boolean(props.node.children?.length) || Boolean(props.node.childNodeCount);
   const expanded = props.isExpanded(props.node.nodeId);
-  async function toggle() {
-    if (!expanded && !props.node.children?.length && props.node.childNodeCount) props.requestChildren(props.node);
-    props.toggleExpanded(props.node.nodeId);
+  function toggle() {
+    props.toggleExpanded(props.node);
   }
   return (
     <div>
@@ -1662,14 +1676,32 @@ function buildVisibleNodes(root: DomNode | null, expandedIds: Set<number>): Visi
   return result;
 }
 
-function findNodeById(node: DomNode | null, nodeId: number): DomNode | null {
+function findNode(node: DomNode | null, target: { nodeId: number; backendNodeId?: number }): DomNode | null {
   if (!node) return null;
-  if (node.nodeId === nodeId) return node;
+  if (node.nodeId === target.nodeId || (target.backendNodeId !== undefined && node.backendNodeId === target.backendNodeId)) return node;
   for (const child of node.children ?? []) {
-    const found = findNodeById(child, nodeId);
+    const found = findNode(child, target);
     if (found) return found;
   }
   return null;
+}
+
+function findAncestorIds(root: DomNode, nodeId: number): number[] {
+  const path: number[] = [];
+
+  function walk(node: DomNode): boolean {
+    if (node.nodeId === nodeId) return true;
+    for (const child of node.children ?? []) {
+      if (walk(child)) {
+        path.unshift(node.nodeId);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  walk(root);
+  return path;
 }
 
 function getPolicyStatus(url: string | undefined): { allowed: boolean; reason?: string } {

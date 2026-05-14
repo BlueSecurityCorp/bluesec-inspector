@@ -114,7 +114,7 @@ async function handleRequest(request: ExtensionRequest): Promise<ExtensionRespon
         await manager.stopInspectMode(request.tabId);
         return ok(manager.getState(request.tabId));
       case 'GET_DOCUMENT':
-        return ok(await manager.sendCommand(request.tabId, 'DOM.getDocument', { depth: 1, pierce: true }));
+        return ok(await manager.sendCommand(request.tabId, 'DOM.getDocument', { depth: request.depth ?? 1, pierce: true }));
       case 'REQUEST_CHILD_NODES':
         return ok(await manager.sendCommand(request.tabId, 'DOM.requestChildNodes', { nodeId: request.nodeId, depth: 1, pierce: true }));
       case 'HIGHLIGHT_NODE':

@@ -33,7 +33,7 @@ export type ExtensionRequest =
   | { type: 'EVALUATE'; tabId: number; expression: string; contextId?: number }
   | { type: 'GET_PROPERTIES'; tabId: number; objectId: string }
   | { type: 'RELEASE_CONSOLE_OBJECTS'; tabId: number }
-  | { type: 'GET_DOCUMENT'; tabId: number }
+  | { type: 'GET_DOCUMENT'; tabId: number; depth?: number }
   | { type: 'GET_COOKIES'; tabId: number }
   | { type: 'SET_COOKIE'; tabId: number; cookie: CookieInput }
   | { type: 'DELETE_COOKIE'; tabId: number; cookie: CookieDeleteInput }
