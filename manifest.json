@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "BlueSec Inspector",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A BlueSecurity developer inspector that works without opening Chrome DevTools.",
   "minimum_chrome_version": "116",
-  "permissions": ["debugger", "sidePanel", "tabs", "storage", "activeTab", "contextMenus"],
+  "permissions": ["debugger", "sidePanel", "tabs", "storage", "activeTab", "contextMenus", "scripting"],
   "host_permissions": [
     "http://*/*",
     "https://*/*"

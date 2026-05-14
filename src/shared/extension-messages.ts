@@ -56,6 +56,13 @@ export type ExtensionRequest =
   | { type: 'GET_MATCHED_STYLES'; tabId: number; nodeId: number }
   | { type: 'GET_COMPUTED_STYLE'; tabId: number; nodeId: number };
 
+export type PickElementByPointRequest = {
+  type: 'PICK_ELEMENT_BY_POINT';
+  tabId: number;
+  x: number;
+  y: number;
+};
+
 export type ExtensionResponse<T = unknown> =
   | { ok: true; data: T }
   | { ok: false; error: string; detail?: unknown };

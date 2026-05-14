@@ -7,6 +7,7 @@ export class DebuggerSessionManager {
   private sessions = new Map<number, SessionState>();
   private reattachAfterNavigation = new Set<number>();
   private manualDetachInFlight = new Set<number>();
+  private onInspectModeStopped?: (tabId: number) => void;
   private inspectHighlightConfig = {
     showInfo: true,
     contentColor: { r: 111, g: 168, b: 220, a: 0.25 },
@@ -15,7 +16,8 @@ export class DebuggerSessionManager {
     paddingColor: { r: 16, g: 185, b: 129, a: 0.25 }
   } as const;
 
-  constructor() {
+  constructor(onInspectModeStopped?: (tabId: number) => void) {
+    this.onInspectModeStopped = onInspectModeStopped;
     chrome.debugger.onEvent.addListener((source, method, payload) => {
       if (source.tabId === undefined) return;
       this.handleEvent(source.tabId, method, payload);
@@ -120,8 +122,21 @@ export class DebuggerSessionManager {
 
   async stopInspectMode(tabId: number): Promise<void> {
     if (!this.isAttached(tabId)) return;
-    await this.sendCommand(tabId, 'Overlay.setInspectMode', { mode: 'none' });
-    this.markInspectModeStopped(tabId);
+    await this.finishInspectMode(tabId);
+  }
+
+  async pickNodeByPoint(tabId: number, x: number, y: number): Promise<void> {
+    if (!this.isInspecting(tabId)) return;
+    const result = await this.sendCommand<{ nodeId?: number; backendNodeId?: number }>(tabId, 'DOM.getNodeForLocation', {
+      x: Math.round(x),
+      y: Math.round(y),
+      includeUserAgentShadowDOM: true,
+      ignorePointerEventsNone: true
+    });
+    const nodeId = result.nodeId ?? await this.pushBackendNodeToFrontend(tabId, result.backendNodeId);
+    if (!nodeId) throw new Error('Could not resolve the clicked element.');
+    await this.finishInspectMode(tabId);
+    this.broadcast({ type: 'ELEMENT_PICKED', tabId, nodeId, backendNodeId: result.backendNodeId });
   }
 
   async sendCommand<T = unknown>(tabId: number, method: string, params?: Record<string, unknown>): Promise<T> {
@@ -158,7 +173,7 @@ export class DebuggerSessionManager {
       return;
     }
     if (method === 'Overlay.inspectNodeRequested') {
-      this.handleInspectNodeRequested(tabId, payload).catch(() => undefined);
+      this.handleInspectNodeRequested(tabId, payload).catch((error) => this.reportCdpError(tabId, error));
       return;
     }
     if (method.startsWith('DOM.')) {
@@ -168,20 +183,47 @@ export class DebuggerSessionManager {
 
   private async handleInspectNodeRequested(tabId: number, payload: unknown): Promise<void> {
     const backendNodeId = (payload as { backendNodeId?: number } | undefined)?.backendNodeId;
-    if (!backendNodeId) return;
+    if (!backendNodeId) throw new Error('Inspect event did not include a backend node id.');
 
-    await this.stopInspectMode(tabId).catch(() => undefined);
+    const nodeId = await this.pushBackendNodeToFrontend(tabId, backendNodeId);
+    if (!nodeId) throw new Error('Could not resolve the inspected element.');
+    await this.finishInspectMode(tabId);
+    this.broadcast({ type: 'ELEMENT_PICKED', tabId, nodeId, backendNodeId });
+  }
+
+  private async finishInspectMode(tabId: number): Promise<void> {
+    try {
+      await this.sendCommand(tabId, 'Overlay.setInspectMode', { mode: 'none' });
+      await this.sendCommand(tabId, 'Overlay.hideHighlight').catch(() => undefined);
+    } catch {
+      await this.sendCommand(tabId, 'Overlay.disable').catch(() => undefined);
+      await this.sendCommand(tabId, 'Overlay.enable').catch(() => undefined);
+    } finally {
+      this.markInspectModeStopped(tabId);
+    }
+  }
+
+  private async pushBackendNodeToFrontend(tabId: number, backendNodeId: number | undefined): Promise<number | undefined> {
+    if (!backendNodeId) return undefined;
     const result = await this.sendCommand<{ nodeIds?: number[] }>(tabId, 'DOM.pushNodesByBackendIdsToFrontend', {
       backendNodeIds: [backendNodeId]
-    }).catch(() => undefined);
-    const nodeId = result?.nodeIds?.[0];
-    if (!nodeId) return;
-    this.broadcast({ type: 'ELEMENT_PICKED', tabId, nodeId, backendNodeId });
+    });
+    return result.nodeIds?.[0];
+  }
+
+  private reportCdpError(tabId: number, error: unknown): void {
+    this.broadcast({
+      type: 'CDP_ERROR',
+      tabId,
+      message: error instanceof Error ? error.message : String(error),
+      detail: error
+    });
   }
 
   private markInspectModeStopped(tabId: number): void {
     const previous = this.sessions.get(tabId);
     if (!previous) return;
+    const wasInspecting = previous.inspecting === true;
     this.sessions.set(tabId, {
       tabId,
       attached: previous.attached,
@@ -190,6 +232,7 @@ export class DebuggerSessionManager {
       title: previous.title,
       error: previous.error
     });
+    if (wasInspecting) this.onInspectModeStopped?.(tabId);
     this.broadcast({ type: 'INSPECT_MODE_CHANGED', tabId, inspecting: false });
   }
 

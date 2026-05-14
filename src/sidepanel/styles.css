@@ -1,9 +1,76 @@
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 13px;
-  color: #1f2937;
-  background: #f6f7f9;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-subtle: #fbfcfd;
+  --surface-muted: #f1f3f5;
+  --divider: #eef0f3;
+  --text: #1f2937;
+  --text-muted: #64748b;
+  --text-soft: #7b8494;
+  --border: #d8dde5;
+  --border-strong: #c9ced6;
+  --active-bg: #1f2937;
+  --active-text: #ffffff;
+  --accent-bg: #dbeafe;
+  --accent-hover: #e8f0fe;
+  --accent-text: #1d4ed8;
+  --accent-border: #93c5fd;
+  --ok-bg: #dcfce7;
+  --ok-text: #166534;
+  --warn-bg: #fff7ed;
+  --warn-text: #9a3412;
+  --warn-border: #fed7aa;
+  --error-bg: #fef2f2;
+  --error-text: #991b1b;
+  --error-border: #fecaca;
+  --code-string: #047857;
+  --code-number: #1d4ed8;
+  --code-object: #7c3aed;
+  --code-name: #9333ea;
+  --code-css-name: #334155;
+  --code-css-value: #0f766e;
+  --shadow: rgba(15, 23, 42, 0.16);
+  color: var(--text);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1120;
+    --surface: #111827;
+    --surface-subtle: #0f172a;
+    --surface-muted: #1f2937;
+    --divider: #1e293b;
+    --text: #e5e7eb;
+    --text-muted: #94a3b8;
+    --text-soft: #9ca3af;
+    --border: #253044;
+    --border-strong: #334155;
+    --active-bg: #dbeafe;
+    --active-text: #0f172a;
+    --accent-bg: rgba(37, 99, 235, 0.24);
+    --accent-hover: rgba(59, 130, 246, 0.22);
+    --accent-text: #93c5fd;
+    --accent-border: #2563eb;
+    --ok-bg: rgba(22, 101, 52, 0.28);
+    --ok-text: #86efac;
+    --warn-bg: rgba(154, 52, 18, 0.28);
+    --warn-text: #fdba74;
+    --warn-border: #9a3412;
+    --error-bg: rgba(153, 27, 27, 0.28);
+    --error-text: #fca5a5;
+    --error-border: #991b1b;
+    --code-string: #34d399;
+    --code-number: #93c5fd;
+    --code-object: #c4b5fd;
+    --code-name: #d8b4fe;
+    --code-css-name: #cbd5e1;
+    --code-css-value: #5eead4;
+    --shadow: rgba(0, 0, 0, 0.38);
+  }
 }
 
 * {
@@ -22,17 +89,17 @@ input {
 
 button {
   height: 28px;
-  border: 1px solid #c9ced6;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #ffffff;
-  color: #1f2937;
+  background: var(--surface);
+  color: var(--text);
   cursor: pointer;
 }
 
 button:disabled {
-  color: #9aa3af;
+  color: var(--text-soft);
   cursor: not-allowed;
-  background: #f1f3f5;
+  background: var(--surface-muted);
 }
 
 .app {
@@ -48,8 +115,8 @@ button:disabled {
   grid-template-columns: 1fr;
   gap: 8px;
   padding: 12px;
-  border-bottom: 1px solid #d8dde5;
-  background: #ffffff;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .brand,
@@ -64,14 +131,14 @@ button:disabled {
 .status {
   padding: 2px 7px;
   border-radius: 999px;
-  background: #eef0f3;
-  color: #5b6472;
+  background: var(--surface-muted);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
 .status.attached {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--ok-bg);
+  color: var(--ok-text);
 }
 
 .target {
@@ -92,7 +159,7 @@ button:disabled {
 }
 
 .url {
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -106,27 +173,27 @@ button:disabled {
 }
 
 .banner.warning {
-  background: #fff7ed;
-  color: #9a3412;
-  border: 1px solid #fed7aa;
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border: 1px solid var(--warn-border);
 }
 
 .banner.error {
-  background: #fef2f2;
-  color: #991b1b;
-  border: 1px solid #fecaca;
+  background: var(--error-bg);
+  color: var(--error-text);
+  border: 1px solid var(--error-border);
 }
 
 .tabs {
   padding: 8px 12px;
-  border-bottom: 1px solid #d8dde5;
-  background: #ffffff;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .tabs button.active {
-  background: #1f2937;
-  color: #ffffff;
-  border-color: #1f2937;
+  background: var(--active-bg);
+  color: var(--active-text);
+  border-color: var(--active-bg);
 }
 
 .panel {
@@ -146,14 +213,14 @@ button:disabled {
 
 .toolbar {
   padding: 8px 12px;
-  border-bottom: 1px solid #d8dde5;
-  background: #fbfcfd;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-subtle);
 }
 
 .toolbar button.active {
-  background: #dbeafe;
-  color: #1d4ed8;
-  border-color: #93c5fd;
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  border-color: var(--accent-border);
 }
 
 .toggle {
@@ -171,11 +238,11 @@ button:disabled {
 
 .log-list {
   flex: 1;
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .empty {
-  color: #7b8494;
+  color: var(--text-soft);
   padding: 16px;
 }
 
@@ -184,25 +251,25 @@ button:disabled {
   grid-template-columns: 78px 64px 1fr;
   gap: 8px;
   padding: 5px 10px;
-  border-bottom: 1px solid #eef0f3;
+  border-bottom: 1px solid var(--divider);
 }
 
 .log-entry.warn {
-  background: #fffbeb;
+  background: var(--warn-bg);
 }
 
 .log-entry.error,
 .log-entry.exception {
-  background: #fef2f2;
+  background: var(--error-bg);
 }
 
 .log-entry.input {
-  background: #f8fafc;
+  background: var(--surface-subtle);
 }
 
 .time,
 .level {
-  color: #687385;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -217,17 +284,19 @@ button:disabled {
   gap: 6px;
   align-items: center;
   padding: 8px 12px;
-  border-top: 1px solid #d8dde5;
-  background: #ffffff;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .console-input input,
 .attribute-row input {
   min-width: 0;
   height: 30px;
-  border: 1px solid #c9ced6;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   padding: 0 8px;
+  background: var(--surface);
+  color: var(--text);
 }
 
 .console-input-wrap {
@@ -247,10 +316,10 @@ button:disabled {
   max-height: 190px;
   overflow: auto;
   padding: 4px;
-  border: 1px solid #c9ced6;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #ffffff;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  background: var(--surface);
+  box-shadow: 0 10px 24px var(--shadow);
   z-index: 5;
 }
 
@@ -268,7 +337,7 @@ button:disabled {
 
 .suggestions button.active,
 .suggestions button:hover {
-  background: #e8f0fe;
+  background: var(--accent-hover);
 }
 
 .object-preview {
@@ -277,16 +346,16 @@ button:disabled {
 }
 
 .remote.string {
-  color: #047857;
+  color: var(--code-string);
 }
 
 .remote.number,
 .remote.boolean {
-  color: #1d4ed8;
+  color: var(--code-number);
 }
 
 .remote.object {
-  color: #7c3aed;
+  color: var(--code-object);
 }
 
 .twisty {
@@ -295,13 +364,13 @@ button:disabled {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .properties {
   margin: 4px 0 4px 18px;
   padding-left: 8px;
-  border-left: 1px solid #d8dde5;
+  border-left: 1px solid var(--border);
 }
 
 .property-row {
@@ -313,7 +382,7 @@ button:disabled {
 }
 
 .property-name {
-  color: #9333ea;
+  color: var(--code-name);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -321,7 +390,7 @@ button:disabled {
 }
 
 .property-separator {
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .property-value {
@@ -378,22 +447,24 @@ button:disabled {
 }
 
 .cookie-list {
-  background: #ffffff;
-  border-right: 1px solid #d8dde5;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
 }
 
 .cookie-search {
   padding: 8px 10px;
-  border-bottom: 1px solid #d8dde5;
-  background: #fbfcfd;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-subtle);
 }
 
 .cookie-search input {
   width: 100%;
   height: 30px;
-  border: 1px solid #c9ced6;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   padding: 0 8px;
+  background: var(--surface);
+  color: var(--text);
 }
 
 .subtabs {
@@ -401,14 +472,14 @@ button:disabled {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-bottom: 1px solid #d8dde5;
-  background: #fbfcfd;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-subtle);
 }
 
 .subtabs button.active {
-  background: #dbeafe;
-  color: #1d4ed8;
-  border-color: #93c5fd;
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  border-color: var(--accent-border);
 }
 
 .cookie-row {
@@ -419,15 +490,15 @@ button:disabled {
   gap: 4px;
   padding: 8px 10px;
   border: 0;
-  border-bottom: 1px solid #eef0f3;
+  border-bottom: 1px solid var(--divider);
   border-radius: 0;
-  background: #ffffff;
+  background: var(--surface);
   text-align: left;
 }
 
 .cookie-row.selected,
 .cookie-row:hover {
-  background: #e8f0fe;
+  background: var(--accent-hover);
 }
 
 .cookie-main {
@@ -444,7 +515,7 @@ button:disabled {
 }
 
 .cookie-main span {
-  color: #4b5563;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -453,29 +524,29 @@ button:disabled {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
 .flag-chip {
   padding: 1px 6px;
   border-radius: 999px;
-  background: #eef0f3;
-  color: #475569;
+  background: var(--surface-muted);
+  color: var(--text-muted);
 }
 
 .cookie-details {
-  background: #fbfcfd;
+  background: var(--surface-subtle);
 }
 
 .storage-editor {
   min-height: 0;
   overflow: auto;
-  background: #fbfcfd;
+  background: var(--surface-subtle);
 }
 
 .storage-db {
-  border-bottom: 1px solid #eef0f3;
+  border-bottom: 1px solid var(--divider);
 }
 
 .db-stores {
@@ -486,16 +557,16 @@ button:disabled {
 
 .store-row {
   height: 26px;
-  border: 1px solid #d8dde5;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--surface);
   text-align: left;
   padding: 0 8px;
 }
 
 .store-row.active,
 .store-row:hover {
-  background: #e8f0fe;
+  background: var(--accent-hover);
 }
 
 .indexeddb-entry-list {
@@ -522,7 +593,7 @@ button:disabled {
 }
 
 .cookie-editor label span {
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -530,20 +601,23 @@ button:disabled {
 .cookie-editor select {
   min-width: 0;
   height: 30px;
-  border: 1px solid #c9ced6;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   padding: 0 8px;
-  background: #ffffff;
+  background: var(--surface);
+  color: var(--text);
 }
 
 .cookie-editor textarea {
   width: 100%;
   min-height: 120px;
   resize: vertical;
-  border: 1px solid #c9ced6;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   padding: 8px;
   font: inherit;
+  background: var(--surface);
+  color: var(--text);
 }
 
 .cookie-grid {
@@ -571,7 +645,7 @@ button:disabled {
 .cookie-readonly {
   display: grid;
   gap: 4px;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -581,8 +655,8 @@ button:disabled {
 }
 
 .dom-tree {
-  background: #ffffff;
-  border-right: 1px solid #d8dde5;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
 }
 
 .dom-row {
@@ -598,16 +672,16 @@ button:disabled {
 
 .dom-row:hover,
 .dom-row.selected {
-  background: #e8f0fe;
+  background: var(--accent-hover);
 }
 
 .details {
-  background: #fbfcfd;
+  background: var(--surface-subtle);
 }
 
 .pane {
   padding: 10px 12px;
-  border-bottom: 1px solid #d8dde5;
+  border-bottom: 1px solid var(--border);
 }
 
 .pane h2 {
@@ -618,7 +692,7 @@ button:disabled {
 .pane h3 {
   margin: 10px 0 6px;
   font-size: 12px;
-  color: #475569;
+  color: var(--text-muted);
 }
 
 .attribute-row {
@@ -630,7 +704,7 @@ button:disabled {
 }
 
 .attr-name {
-  color: #9333ea;
+  color: var(--code-name);
   overflow-wrap: anywhere;
 }
 
@@ -648,12 +722,12 @@ button:disabled {
 }
 
 .css-row span {
-  color: #0f766e;
+  color: var(--code-css-value);
   overflow-wrap: anywhere;
 }
 
 .css-row b {
-  color: #334155;
+  color: var(--code-css-name);
   font-weight: 400;
   overflow-wrap: anywhere;
 }
@@ -664,7 +738,7 @@ button:disabled {
   }
 
   .details {
-    border-top: 1px solid #d8dde5;
+    border-top: 1px solid var(--border);
   }
 
   .cookies-layout {
@@ -673,7 +747,7 @@ button:disabled {
 
   .cookie-list {
     border-right: 0;
-    border-bottom: 1px solid #d8dde5;
+    border-bottom: 1px solid var(--border);
   }
 
   .cookie-grid,

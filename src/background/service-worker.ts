@@ -8,10 +8,13 @@ import type {
   ExtensionResponse,
   IndexedDbDatabasesResult,
   IndexedDbEntriesResult,
+  PickElementByPointRequest,
   WebStorageResult
 } from '../shared/extension-messages';
 
-const manager = new DebuggerSessionManager();
+const manager = new DebuggerSessionManager((tabId) => {
+  cancelPickClickFallback(tabId).catch(() => undefined);
+});
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
@@ -44,12 +47,14 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((request: ExtensionRequest, _sender, sendResponse) => {
+type BackgroundRequest = ExtensionRequest | PickElementByPointRequest;
+
+chrome.runtime.onMessage.addListener((request: BackgroundRequest, _sender, sendResponse) => {
   handleRequest(request).then(sendResponse);
   return true;
 });
 
-async function handleRequest(request: ExtensionRequest): Promise<ExtensionResponse> {
+async function handleRequest(request: BackgroundRequest): Promise<ExtensionResponse> {
   try {
     switch (request.type) {
       case 'GET_ACTIVE_TAB':
@@ -109,9 +114,11 @@ async function handleRequest(request: ExtensionRequest): Promise<ExtensionRespon
         return ok(await deleteIndexedDbDatabase(request.tabId, request.databaseName));
       case 'START_INSPECT_MODE':
         await manager.startInspectMode(request.tabId);
+        await installPickClickFallback(request.tabId).catch(() => undefined);
         return ok(manager.getState(request.tabId));
       case 'STOP_INSPECT_MODE':
         await manager.stopInspectMode(request.tabId);
+        await cancelPickClickFallback(request.tabId).catch(() => undefined);
         return ok(manager.getState(request.tabId));
       case 'GET_DOCUMENT':
         return ok(await manager.sendCommand(request.tabId, 'DOM.getDocument', { depth: request.depth ?? 1, pierce: true }));
@@ -150,10 +157,63 @@ async function handleRequest(request: ExtensionRequest): Promise<ExtensionRespon
         return ok(await manager.sendCommand(request.tabId, 'CSS.getMatchedStylesForNode', { nodeId: request.nodeId }));
       case 'GET_COMPUTED_STYLE':
         return ok(await manager.sendCommand(request.tabId, 'CSS.getComputedStyleForNode', { nodeId: request.nodeId }));
+      case 'PICK_ELEMENT_BY_POINT':
+        return ok(await pickElementByPoint(request.tabId, request.x, request.y));
     }
   } catch (error) {
     return fail(toFriendlyError(error), error);
   }
+}
+
+async function installPickClickFallback(tabId: number): Promise<void> {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    args: [tabId],
+    func: (targetTabId: number) => {
+      const previous = (window as typeof window & { __bluesecPickAbort?: AbortController }).__bluesecPickAbort;
+      previous?.abort();
+
+      const controller = new AbortController();
+      (window as typeof window & { __bluesecPickAbort?: AbortController }).__bluesecPickAbort = controller;
+
+      const cleanup = () => {
+        controller.abort();
+        if ((window as typeof window & { __bluesecPickAbort?: AbortController }).__bluesecPickAbort === controller) {
+          delete (window as typeof window & { __bluesecPickAbort?: AbortController }).__bluesecPickAbort;
+        }
+      };
+
+      window.setTimeout(cleanup, 30000);
+      window.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        chrome.runtime.sendMessage({
+          type: 'PICK_ELEMENT_BY_POINT',
+          tabId: targetTabId,
+          x: event.clientX,
+          y: event.clientY
+        }).catch(() => undefined);
+        cleanup();
+      }, { capture: true, once: true, signal: controller.signal });
+    }
+  });
+}
+
+async function cancelPickClickFallback(tabId: number): Promise<void> {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const controller = (window as typeof window & { __bluesecPickAbort?: AbortController }).__bluesecPickAbort;
+      controller?.abort();
+      delete (window as typeof window & { __bluesecPickAbort?: AbortController }).__bluesecPickAbort;
+    }
+  });
+}
+
+async function pickElementByPoint(tabId: number, x: number, y: number): Promise<null> {
+  await manager.pickNodeByPoint(tabId, x, y);
+  await cancelPickClickFallback(tabId).catch(() => undefined);
+  return null;
 }
 
 async function attach(tabId: number): Promise<ExtensionResponse> {
