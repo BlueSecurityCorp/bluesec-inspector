@@ -30,15 +30,16 @@ jobs:
   release:
     name: Build and publish v${{ inputs.version }}
     runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
 
     steps:
       - name: Validate version input
         shell: bash
         run: |
           set -euo pipefail
-          VERSION='${{ inputs.version }}'
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid version: $VERSION"
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: $RELEASE_VERSION"
             exit 1
           fi
 
@@ -47,6 +48,11 @@ jobs:
         with:
           ref: ${{ inputs.target_ref }}
           fetch-depth: 0
+
+      - name: Resolve release commit
+        id: release_commit
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -58,19 +64,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION='${{ inputs.version }}'
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           LOCK_VERSION="$(node -p "require('./package-lock.json').version")"
           LOCK_ROOT_VERSION="$(node -p "require('./package-lock.json').packages[''].version")"
           MANIFEST_VERSION="$(node -p "require('./manifest.json').version")"
 
           printf 'Requested: %s\npackage.json: %s\npackage-lock.json: %s\npackage-lock root: %s\nmanifest.json: %s\n' \
-            "$VERSION" "$PACKAGE_VERSION" "$LOCK_VERSION" "$LOCK_ROOT_VERSION" "$MANIFEST_VERSION"
+            "$RELEASE_VERSION" "$PACKAGE_VERSION" "$LOCK_VERSION" "$LOCK_ROOT_VERSION" "$MANIFEST_VERSION"
 
-          [[ "$PACKAGE_VERSION" == "$VERSION" ]]
-          [[ "$LOCK_VERSION" == "$VERSION" ]]
-          [[ "$LOCK_ROOT_VERSION" == "$VERSION" ]]
-          [[ "$MANIFEST_VERSION" == "$VERSION" ]]
+          [[ "$PACKAGE_VERSION" == "$RELEASE_VERSION" ]]
+          [[ "$LOCK_VERSION" == "$RELEASE_VERSION" ]]
+          [[ "$LOCK_ROOT_VERSION" == "$RELEASE_VERSION" ]]
+          [[ "$MANIFEST_VERSION" == "$RELEASE_VERSION" ]]
 
       - name: Reject an existing release tag
         shell: bash
@@ -78,7 +83,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="v${{ inputs.version }}"
+          TAG="v$RELEASE_VERSION"
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
             echo "Tag already exists: $TAG"
             exit 1
@@ -107,13 +112,13 @@ jobs:
           test -d dist/icons
 
           DIST_VERSION="$(node -p "require('./dist/manifest.json').version")"
-          [[ "$DIST_VERSION" == '${{ inputs.version }}' ]]
+          [[ "$DIST_VERSION" == "$RELEASE_VERSION" ]]
 
       - name: Create release archive
         shell: bash
         run: |
           set -euo pipefail
-          ARCHIVE="bluesec-inspector-${{ inputs.version }}.zip"
+          ARCHIVE="bluesec-inspector-$RELEASE_VERSION.zip"
           (
             cd dist
             zip -r "../$ARCHIVE" .
@@ -134,11 +139,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.release_commit.outputs.sha }}
         run: |
           set -euo pipefail
-          VERSION='${{ inputs.version }}'
-          TAG="v$VERSION"
-          ARCHIVE="bluesec-inspector-$VERSION.zip"
+          TAG="v$RELEASE_VERSION"
+          ARCHIVE="bluesec-inspector-$RELEASE_VERSION.zip"
           PRERELEASE_ARGS=()
 
           if [[ '${{ inputs.prerelease }}' == 'true' ]]; then
@@ -149,7 +154,7 @@ jobs:
             "$ARCHIVE" \
             "$ARCHIVE.sha256" \
             --repo '${{ github.repository }}' \
-            --target "${{ github.sha }}" \
-            --title "BlueSec Inspector $VERSION" \
+            --target "$RELEASE_SHA" \
+            --title "BlueSec Inspector $RELEASE_VERSION" \
             --generate-notes \
             "${PRERELEASE_ARGS[@]}"
